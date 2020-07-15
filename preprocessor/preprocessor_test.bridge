@@ -1,0 +1,14 @@
+#define TEST
+
+#define MALLOC malloc
+
+#define ORGS "Klebsiella spp",\
+             "Salmonella spp",\
+             "Enterobacter spp.",\
+             "Acinetobacter baumanii"\
+
+setvar orgs= [ORGS];
+
+#define Y(name) setvar name = "name to put"
+Y(var1);
+Y(var2);

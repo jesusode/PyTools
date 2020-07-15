@@ -1,0 +1,43 @@
+#define XX
+#define YY
+#define ZZ
+
+#ifdef XX
+_print("XX esta definida");
+#endif
+
+#ifdef YY
+_print("YY esta definida");
+#endif
+
+#ifdef ZZ
+_print("ZZ esta definida");
+#endif
+
+##undef XX
+##undef YY
+##undef ZZ
+
+#ifdef XX
+    _print("XX esta definida2");
+  #ifdef YY
+    _print("YY esta definida2");
+   #ifdef ZZ
+    _print("ZZ esta definida2");
+   #endif
+  #endif
+#endif
+
+#define FFX
+
+#ifndef FF
+_print("FF no esta definido");
+ #ifdef ZZ
+ _print("ZZ interior");
+ #endif
+#endifn
+
+#Esto daba problemas con el preprocessor: confunde el /* con el comienzo de un comentario
+#_print(findfiles("test_code/*.txt","test_code"));
+
+

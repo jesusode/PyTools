@@ -1,0 +1,24 @@
+#foreach solo acepta argumentos variables, y DEBE ser la primera palabra despues de la definicion
+#En caso contrario, no se interpreta.
+#define PRINTALL(...) #foreach _print(x,y,...);
+PRINTALL(1,2,3,4,5);
+
+#No hay recursividad. Esto solo se ejecuta una vez
+#define RECUR RECUR
+#RECUR
+
+#Las macros son sensibles al orden de ejecucion: se ejecutan en el mismo orden en que se han definido
+#define ENUMS(...) #foreach MAKEENUM ## ...
+##define ENUMS(...) #foreach  # MAKEENUM ## ...
+
+#define MAKEENUM(name,...) begin enum name : ... end endsec;
+MAKEENUM(Colores,Rojo,Verde,Gris)
+ENUMS((Simples,Blanco,Negro),(Primarios,Verde,Amarillo,Azul))
+
+#define SUM(...) sum(1,2,...)
+##vsep cambia el separador para los argumentos variadicos. Puede ser cualquier cosa o la cadena vacia
+##vsep ;
+##vsep 
+
+setvar f= SUM(3,4,5,6,7,8,9,1000);
+

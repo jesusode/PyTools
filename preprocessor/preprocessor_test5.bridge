@@ -1,0 +1,30 @@
+print('comenzamos');
+
+/*No se pueden usar comentarios multilinea con las lineas del
+preprocesador porque no las entiende. Solo comentarios de una linea.*/
+
+##include test_code/include1.txt
+##include test_code/include4.txt
+##include test_code/include3.txt
+##include test_code/include2.txt
+
+#define INCLUDE6
+
+#define OTRO 900
+#define YOTROMAS 91
+
+#ifdef INCLUDE6
+#include test_code/include6.txt
+#endif
+print('terminamos');
+
+/*Nuevo: aceptamos #ifexp expr ... #endifexp que deja pasar las
+lineas si se cumple la expresion. La expresion debe ser cualquier
+expresion Python valida. Lo que esta definido esta disponible para
+la expresion, pero un #define 45 crea 45 no como entero sino
+como string*/
+#ifexp int(OTRO) < int(YOTROMAS)
+##ifexp 25 == 3333
+print('Expresion evaluada y distinta de cero');
+#endifexp
+

@@ -1,0 +1,73 @@
+/*Pruebas de X macros*/
+
+#define LIST_OF_VARIABLES \
+    X(value1) \
+    X(value2) \
+    X(value3)\
+
+
+#define VARS X(value1) X(value2) X(value3)
+
+
+#define X(name) setvar name = "";
+VARS
+
+#undef X
+
+#define X(name) setvar name_nuevo = "";
+LIST_OF_VARIABLES
+#undef X
+
+#setvar x="LIST_OF_VARIABLES";
+
+_print(28+5);#setvar x="LIST_OF_VARIABLES";
+
+/*  LIST_OF_VARIABLES 
+linea 1
+LIST_OF_VARIABLES
+linea 2
+*/ _print("bye");
+
+/*LIST_OF_VARIABLES*/
+
+_print(5+5);/*LIST_OF_VARIABLES*/
+
+""" LIST_OF_VARIABLES """;
+
+setvar b=""" LIST_OF_VARIABLES """;
+
+_print(""" LIST_OF_VARIABLES """);
+
+"""LIST_OF_VARIABLES
+otra linea
+y otra mas
+LIST_OF_VARIABLES""";
+
+"""
+LIST_OF_VARIABLES
+otra linea
+y otra mas
+LIST_OF_VARIABLES
+""";
+
+#define POST "_fijo_"
+
+setvar l=["uno","""LIST_OF_VARIABLES""" + POST,"""LIST_OF_VARIABLES
+linea2
+"""];
+
+setvar k= {"""LIST_OF_VARIABLES""": 1,
+           "POST":"""LIST_OF_VARIABLES"""};
+
+setvar a="xx" + POST;
+
+setvar g= """LIST_OF_VARIABLES""" + POST + """LIST_OF_VARIABLES"""; 
+
+    #define TEST "test"
+    /*Funcion para test de hipotesis comparando medias.
+    sigma_p es la desv. estandar de la poblacion que se supone
+    conocida. Si no, debe estimarse a partir de la de la muestra
+    para n-1.Devuelve una lista con: [Zesperado,Zcalculado,-Zesperado,rechazar(0 o 1)]*/
+
+    #Estos comentarios entre sentencias acaban al final de la linea????
+    setvar a=3;TEST;/*Comentario escondido TEST*/a=9;TEST;
