@@ -39,9 +39,9 @@ class transactional(object):
             raise
       return transaction
 
-def _transaction(*objs):
+def transaction(*objs):
     return Transaction(*objs)
-def _rollback(*transactions):
+def rollback(*transactions):
     for t in transactions:
         t.Rollback()
     return 1
