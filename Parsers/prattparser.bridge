@@ -1,0 +1,264 @@
+imports lexer;
+
+
+/*Soporte para parsers tipo Pratt*/
+
+#Tabla tipo de token->(operador al que se mapea,precedencia)
+
+setvar operators_table={};
+
+begin
+    function PrattExpression(|?prec=0,?as_tree=false):
+        global token_,lexer_;
+        #print("Entrando a PrattExpression()");
+        #print("as_tree:" + _tostring(as_tree));
+        setvar t= token_;
+        token_= PrattOperatorFactory(lexer_.nextToken(),as_tree);
+        #print("token: " +  token_.value);
+        setvar left= t.nud(t,as_tree);
+        while prec < token_.precedence do
+            #print("En el while");
+            t=token_;
+            token_ = PrattOperatorFactory(lexer_.nextToken(),as_tree);
+            left = t.led(t,left,as_tree);
+        end;
+        return left;
+    end
+
+/*PrattParse deberia aceptar un Operator de inicio, el string a procesar, el lexer y as_tree para obtener el AST*/
+    function PrattParse(program,lexer_|?as_tree=false):
+        global token_;
+        #print("Entrando a PrattParse");
+        #print("as_tree: " + _tostring(as_tree));
+        lexer_.setInput(program);
+        #token_= PrattOperatorFactory(lexer_.nextToken());
+        token_= PrattOperatorFactory( new token(?"",?"program"));
+        #print("llamando a PrattExpression()");
+        return PrattExpression(|?as_tree=as_tree);
+    end
+
+    enum op_kind: literal,unop,binop_left,binop_right,un_and_binop,sequence, eof end
+
+    function literal_nud(oper|?as_tree=false):
+        print("en literal_nud: " + _tostring(as_tree));
+        if as_tree==false then
+            return oper;
+        else
+            return oper.value;
+        end;
+    end
+
+    function binop_left_prec_led(oper,nextop|?as_tree=false):
+        print("en binop_left: " + _tostring(as_tree));
+        oper.first=nextop;
+        oper.second=PrattExpression(oper.precedence|?as_tree=as_tree);
+        if as_tree==false then
+            return oper;
+        else
+            return [oper.value,oper.first,oper.second];
+        end;
+    end
+
+    function binop_right_prec_led(oper,nextop|?as_tree=false):
+        oper.first=nextop;
+        oper.second=PrattExpression(oper.precedence-1|?as_tree=as_tree);
+        if as_tree==false then
+            return oper;
+        else
+            return [oper.value,oper.first,oper.second];
+        end;
+    end
+
+    function unop_nud(oper|?as_tree=false):
+        oper.first=PrattExpression(oper.precedence*10);
+        oper.second=null;
+        if as_tree==false then
+            return oper;
+        else
+            return [oper.value, oper.first.value];
+        end;
+    end
+
+    #Conjunto de funciones para obtener el resultado
+    function literal_nud2(oper|?as_tree=false):
+        #print("res en literal_nud2: "+ _toint(oper.value));
+        try:
+            return _toint(oper.value);
+        catch:
+            return oper.value;
+        end;
+    end
+
+    function binop_left_prec_led2(oper,nextop|?as_tree=false):
+        print("en binop_left: " + _tostring(as_tree));
+        oper.first=nextop;
+        oper.second=PrattExpression(oper.precedence|?as_tree=as_tree);
+        cond oper.value
+            case == '+' do
+                res= oper.first + oper.second;
+            case == '-'  do
+                res= oper.first - oper.second;
+            case == '*'  do
+                res= oper.first * oper.second;
+            else do
+                res= oper.first / oper.second;
+        end;
+        print("res en binop_left_prec_led2: "+ res);
+        return res;
+    end
+
+    function binop_right_prec_led2(oper,nextop|?as_tree=false):
+        oper.first=nextop;
+        oper.second=PrattExpression(oper.precedence-1|?as_tree=as_tree);
+        res= oper.first ** oper.second;
+        print("res en binop_right_prec_led2: "+ res);
+        return res;
+    end
+
+    function unop_nud2(oper|?as_tree=false):
+        oper.first=PrattExpression(oper.precedence*10);
+        oper.second=null;
+        if oper.value=='+' then
+            res= oper.first;
+        else
+            res= -oper.first;
+        end;
+        print("res en unop_nud2: "+ res);
+        return res;
+    end
+
+    #Esta version de Python parece tener problemas con los argumentos con valor: el primero lo pone a True sea lo que sea
+    function pratt_sequence_nud(oper|?kk="",?terminator_="EOF",?separator_=";"):
+        global lexer_,token_;
+        oper.first=[];
+        while true do
+            print("entrando al while");
+            print(kk);
+            if token_.value == terminator_ then
+                break;
+            end;
+            oper.first :: PrattExpression();
+            print(lexer_.lookahead(2));
+            assert token_.value == separator_;
+            #Descartar el separator (token_value es separator)
+            token_=PrattOperatorFactory(lexer_.nextToken());
+        end;
+        return oper.first;
+    end
+
+    function PrattOperatorFactory2(tok|?as_tree=false):
+        global operators_table;
+        print("PrattFactory::Type: " + tok.%type%);
+        assert tok.%type% in _keys(operators_table);
+        kind,prec=operators_table[tok.%type%];
+        op=new PrattOperator(?tok.value,?prec,?kind);
+        #Asignar nud y led segun tipo
+        cond kind
+            case in [op_kind..literal,op_kind..eof] do
+                op.nud= literal_nud;
+            case == op_kind..unop do
+                op.nud= unop_nud;
+            case == op_kind..binop_left do
+                op.led= binop_left_prec_led;
+            case == op_kind..un_and_binop do
+                op.led= binop_left_prec_led;
+                op.nud= unop_nud;
+            else do
+                op.led= binop_right_prec_led;
+        end;
+        return op;
+    end
+
+    function PrattOperatorFactory(tok|?as_tree=false):
+        global operators_table;
+        print("PrattFactory::Type: " + tok.%type%);
+        assert tok.%type% in _keys(operators_table);
+        kind,prec,nud,led=operators_table[tok.%type%];
+        op=new PrattOperator(?tok.value,?prec,?kind);
+        op.nud=nud;
+        op.led=led;
+        return op;
+    end
+endsec;
+
+begin
+    class PrattOperator extends object
+        value : public
+        precdedence : public
+        kind : public
+        assoc : public
+        public function __init__(value,prec,kind|?astree=false):
+            this.value= value;
+            this.precedence=prec;
+            this.kind=kind;
+            this.first=null;
+            this.second=null;
+            this.third=null;
+            this.nud= null;
+            this.led=null;
+            this.as_tree=astree;
+        end
+        public function toString():
+            return format "<PrattOperator -> value: {0}\n, precedence: {1}\n, kind: {2}\n first: {3}\n, second: {4}\n, third: {5}\n, nud: {6}\n, led: {7}\n as_tree: {8}  >" with [this.value, this.precedence, this.kind, this.first, this.second, this.third, this.nud,this.led,this.as_tree];
+        end
+        public function __repr__():
+            return this.toString();
+        end
+    end
+endsec;
+
+
+setvar operators_table2={"number": (op_kind..literal,0),
+                 "plus":(op_kind..un_and_binop,10),
+                 "minus":(op_kind..un_and_binop,10),
+                 "times":(op_kind..binop_left,20),
+                 "div":(op_kind..binop_left,20),
+                 "exp" : (op_kind..binop_right,30),
+                 "EOF":(op_kind..eof,-1)};
+
+operators_table={"program": (op_kind..sequence,0,pratt_sequence_nud,null),
+                 "semi": (op_kind..literal,0,literal_nud2,null),
+                 "number": (op_kind..literal,0,literal_nud2,null),
+                 "id": (op_kind..literal,0,literal_nud2,null),
+                 "plus":(op_kind..un_and_binop,10,unop_nud2,binop_left_prec_led2),
+                 "minus":(op_kind..un_and_binop,10,unop_nud2,binop_left_prec_led2),
+                 "times":(op_kind..binop_left,20,null,binop_left_prec_led2),
+                 "div":(op_kind..binop_left,20,null,binop_left_prec_led2),
+                 "equal": (op_kind..binop_left,5,null,binop_left_prec_led2),
+                 "exp" : (op_kind..binop_right,30,null,binop_right_prec_led2),
+                 "EOF":(op_kind..eof,-1,literal_nud2,null)};
+print(operators_table);
+
+setvar token_,next_,lexer_;
+
+setvar table=[
+    ["\s+","WHITESPACE",null,false],
+    [",","comma",null,false],
+    [";","semi",null,false],
+    ["\.","dot",null,false],
+    ["=","equal",null,false],
+    ["[0-9]+","number",null,false],
+    ["[a-zA-Z_][a-zA-Z0-9_]+","id",null,false],
+    ["\+","plus",null,false],
+    ["\-","minus",null,false],
+    ["\*\*","exp",null,false],
+    ["\*","times",null,false],
+    ["/","div",null,false]
+  ];
+
+lexer_ = new lexer;
+lexer_.setTable(table);
+
+#setvar texto="-123+456-999*90/666**+5";
+setvar texto="2+3+4*5**2-1";
+texto="1-2+3-4+5-6";
+texto="1+2;3-4;6*2+6;";
+#pprint.pprint(lexer_.tokenize(texto));
+
+#Vamos alla
+_print("-----------------------");
+_print(lexer_);
+pprint.pprint(PrattParse(texto,lexer_,true));
+/*foreach item in lexer_.tokenize(texto) do
+    print(PrattOperatorFactory(item));
+end;*/

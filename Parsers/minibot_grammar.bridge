@@ -1,0 +1,207 @@
+#Pruebas del generador de parsers
+imports parser_builder;
+
+setvar input="""
+/*Las gramaticas son sensibles al orden de los elementos de las reglas:
+por ejemplo, para condexp, si se pone esto:
+    condexp [returns boolval] : {{boolval="no";}} 
+           |(ID IGUAL ULTIMO)
+           |(ID IGUAL STRING)
+           |(ID IGUAL ID);
+funciona bien, pero si se pone la opcion con los dos ID al principio
+no funciona y genera un parser erroneo.
+    condexp [returns boolval] : {{boolval="no";}} 
+           |(ID IGUAL ID)
+           |(ID IGUAL ULTIMO)
+           |(ID IGUAL STRING);
+Hay que ver si esto es asi por como funciona o es un error
+Para los tokens, la expresion regular puede interferir con la escritura a archivo.
+Esto hay que pulirlo mucho.
+*/
+grammar bot
+    tokens 
+        WHITESPACE -> <re>\\s+</re>
+        DOT -> <re>\\.</re>
+        DEFINE -> <re>define</re>
+        GUARDA -> <re>guarda</re>
+        CARGA -> <re>carga</re>
+        BORRA -> <re>borra</re>
+        MUESTRA -> <re>muestra</re>
+        ACCIONES -> <re>acciones</re>
+        ACCION -> <re>accion</re>
+        COMO -> <re>como</re>
+        CON -> <re>con</re>
+        COMPRUEBA -> <re>comprueba</re>
+        ENTONCES -> <re>entonces</re>
+        EN -> <re>en</re>
+        SI -> <re>si</re>
+        SUMA -> <re>suma</re>
+        CAMBIA -> <re>cambia</re>
+        MACROS -> <re>macros</re>
+        MACRO -> <re>macro</re>
+        PREGUNTA -> <re>pregunta</re>
+        IGUAL -> <re>igual</re>
+        DISTINTO -> <re>distinto</re>
+        ULTIMO -> <re>ultimo</re>
+        MAYOR -> <re>mayor</re>
+        MENOR -> <re>menor</re>
+        MIENTRAS -> <re>mientras</re>
+        HACER -> <re>hacer</re>
+        FIN -> <re>fin</re>
+        ID -> <re>[a-zA-Z_][a-zA-Z_0-9]+</re>
+        STRING -> <re>\\"[^\\"]+\\"</re>
+    end
+    ignore WHITESPACE end
+    discard DEFINE GUARDA CARGA ACCION ACCIONES MACRO MACROS
+             DOT COMO BORRA MUESTRA PREGUNTA SUMA IGUAL DISTINTO
+            CAMBIA COMPRUEBA CON EN SI ENTONCES MIENTRAS HACER FIN end
+    {{
+    setvar acciones={};setvar macros={}; setvar uservars={};setvar last="";
+    begin
+
+        function dispatchOrder(name,_args):
+            global acciones,macros;
+            if name in _keys(acciones) then
+                runAction(name,_args);
+            else
+                if name in _keys(macros) then
+                    runMacro(name,_args);
+                else
+                    raise format "Error: {0} no es una orden o macro definida." with [name];
+                end;
+            end;
+        end
+
+        function runAction(name,_args):
+            global acciones,last;
+            cmd=acciones[name];
+            if _size(_args) >1 then
+               # args= reduce |(x,y):x + " " + y| in [1:null] in map |(x):x.value| in _args;
+                _print("args: " + _args);
+                last=_system(cmd +  " " + _strip(_args,\"\\"\"));
+            else
+               last=_system(cmd);
+            end;
+            #_print("Ultimo valor devuelto por sistema: " + last);
+       end
+
+       function runMacro(name,_args):
+           global macros,last;
+           mcr=macros[name];
+           foreach item in mcr do
+               runAction(item,_args);
+           end;
+       end
+
+       function updateDictionary(old,news):
+           assert _type(old)==_type({}) and _type(news)==_type({});
+           foreach item in news do
+               old[item]=news[item];
+           end;
+           _print("diccionario actualizado: " + _tostring(old));
+       end
+    endsec;
+    }}
+
+    bot : (orden DOT)+;
+    orden [returns null] : {{global acciones,macros,uservars,last;}} 
+             |(MIENTRAS condexp HACER (orden)+ FIN)
+             |(SI condexp ENTONCES ID (STRING)*  {{
+                  if orden_values[0]=="si" then
+                      args= _cdr(orden_values);
+                      ord=_car(args);
+                      arg=_cdr(args);
+                      #_print("ord: " + _tostring(ord));
+                      #_print("arg: " + _tostring(arg));
+                      if arg!=[] then
+                          arg= reduce |(x,y):x + " " + y| in map |(x):x.value| in arg;
+                      end;
+                      dispatchOrder(ord.value,arg);
+                  end;
+               }})
+             |(COMPRUEBA condexp {{last=orden_values[0];}})
+             |(SUMA ID CON ID  {{last=uservars[orden_values[0].value] + uservars[orden_values[1].value];}})
+             |(CAMBIA ID CON ID EN ID  {{_print("Cambio de IDs: Pendiente de implementar");}})
+             |(PREGUNTA [STRING] ID {{last=_input(_strip(orden_values[0].value,"\\\""));uservars[orden_values[1].value]=last; }})
+             |(ULTIMO {{_print("Ultimo: " + last);}})
+             |(DEFINE ACCION ID COMO STRING
+                               {{acciones[orden_values[0].value]=_strip(orden_values[1].value,"\\\"");_print(_tostring(acciones));}}) 
+           |(DEFINE MACRO ID COMO (ID)+ {{_print("orden_values: " + _tostring(orden_values));macros[orden_values[0].value]= map |(x):x.value| in [1:null] in orden_values;}})
+           |(DEFINE ID COMO STRING {{ uservars[orden_values[0].value]=_strip(orden_values[1].value,"\\\"");_print(_tostring(uservars)); }})
+         |(DEFINE ID COMO ULTIMO {{ uservars[orden_values[0].value]=last;_print(_tostring(uservars)); }})
+           |(DEFINE ID COMO ID {{ uservars[orden_values[0].value]=_strip(orden_values[1].value,"\\\"");_print(_tostring(uservars)); }})
+           |(GUARDA ACCIONES COMO STRING {{ serialize acciones in _strip(orden_values[0].value,"\\\"");}}) 
+             |(CARGA ACCIONES COMO STRING  {{aux=deserialize from _strip(orden_values[0].value,"\\\""); updateDictionary(acciones,aux);}}) 
+             |(GUARDA MACROS COMO STRING {{ serialize macros in _strip(orden_values[0].value,"\\\"");}}) 
+           |(CARGA MACROS COMO STRING  {{_print("Carga Macros: Pendiente de implementar");}})
+           |(BORRA ACCIONES {{acciones={}; _print("acciones: " + _tostring(acciones));}})
+           |(BORRA MACROS {{macros={}; _print("macros: " + _tostring(macros));}})
+           |(MUESTRA STRING {{ _print(_strip(orden_values[0].value,"\\\""));}})
+           |(MUESTRA ID {{if orden_values[0].value in _keys(uservars) then
+                                          _print(orden_values[0].value + "  ->  " + uservars[orden_values[0].value]);
+                                       else
+                                          _print(format "La variable de usuario {0} no esta definida" with [orden_values[0].value]);
+                                      end;}})
+           |(MUESTRA ACCION ID {{if orden_values[0].value in _keys(acciones) then
+                                          _print(orden_values[0].value + "  ->  " + acciones[orden_values[0].value]);
+                                       else
+                                          _print(format "La accion {0} no esta definida" with [orden_values[0].value]);
+                                      end;}})
+           |(MUESTRA MACRO ID {{if orden_values[0].value in _keys(macros) then
+                                          _print(orden_values[0].value + "  ->  " + _tostring(macros[orden_values[0].value]));
+                                       else
+                                          _print(format "La macro {0} no esta definida" with [orden_values[0].value]);
+                                      end;}})
+           |(MUESTRA ACCIONES {{foreach item in acciones do
+                                          _print(item + "  ->  " + acciones[item]);
+                                      end;}})
+           |(MUESTRA MACROS {{foreach item in macros do
+                                          _print(item + "  ->  " + _tostring(macros[item]));
+                                      end;}})
+           |(ID (STRING)* {{
+                   args= [1:null] in orden_values;
+                   if args!=[] then
+                       args= reduce |(x,y):x + " " + y| in map |(x):x.value| in args;
+                   end;
+                   dispatchOrder(orden_values[0].value,args);
+                   }})
+             ;
+    condexp [returns boolval] : {{boolval="no";}} 
+           |(ID IGUAL ULTIMO {{boolval="si" if condexp_values[0].value==last else "no";}} )
+           |(ID IGUAL STRING {{boolval="si" if condexp_values[0].value==_strip(condexp_values[1].value,"\\\"") else "no";}} )
+             |(ID IGUAL ID {{boolval="si" if condexp_values[0].value==condexp_values[1].value else "no";}} )
+             |(ID DISTINTO ULTIMO {{boolval="si" if condexp_values[0].value!=last else "no";}})
+             |(ID DISTINTO STRING {{boolval="si" if condexp_values[0].value!=_strip(condexp_values[1].value,"\\\"") else "no";}})
+           |(ID DISTINTO ID {{boolval="si" if condexp_values[0].value!=condexp_values[1].value else "no";}})
+           |(ID MAYOR ULTIMO {{boolval="si" if condexp_values[0].value>last else "no";}})
+           |(ID MAYOR STRING {{boolval="si" if condexp_values[0].value>_strip(condexp_values[1].value,"\\\"") else "no";}})
+             |(ID MAYOR ID {{boolval="si" if condexp_values[0].value>condexp_values[1].value else "no";}})
+             |(ID MENOR ULTIMO {{boolval="si" if condexp_values[0].value<last else "no";}})
+             |(ID MENOR STRING {{boolval="si" if condexp_values[0].value<_strip(condexp_values[1].value,"\\\"") else "no";}})
+           |(ID MENOR ID {{boolval="si" if condexp_values[0].value<condexp_values[1].value else "no";}});
+
+end
+    /*codigo de la aplicacion: revisar por que la string vacia da error!!!*/
+    {{
+setvar userinput;
+setvar session=[];
+while true do
+    userinput=_input("\\\\nBOT>");
+    if userinput=="salir." then break; end;
+    lexx.setInput(userinput);
+    session :: userinput;
+    bot();
+    #_print(_tostring(bot()));
+end;  
+    }}
+""";
+
+lexx.setInput(input);
+setvar parse_str= grammar();
+_print("Parser generado:\n");
+_print(parse_str);
+create files "minibot.bridge";
+#Cambio para que escriba bien en el archivo (revisarlo)
+words parse_str.replace("'\"","\"").replace("\"'","\"").replace("u\"","\"") to "minibot.bridge";
+
+_print("Ok");

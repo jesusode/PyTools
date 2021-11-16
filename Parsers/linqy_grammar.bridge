@@ -1,0 +1,436 @@
+#Pruebas del generador de parsers
+imports parser_builder;
+setvar input="""
+    grammar expr
+        /*gramatica para expresiones booleanas y expresiones LL(2) rapida, con
+        limitaciones para llamadas a funcion (necesitan poner antes call)
+        y accesores (necesitan tener antes get)*/
+        tokens 
+            WHITESPACE -> <re>\\s+</re>
+            ARROW -> <re>\\-></re>
+            COMMENT -> <re>\\#[^\\#]*[\\#]</re>
+            PLUSMIN -> <re>\\+|\\-</re>
+            TIMESDIV -> <re>\\*|/</re>
+            EXP -> <re>\\^</re>
+            QUESTION -> <re>\\?</re>
+            LPAREN -> <re>\(</re>
+            RPAREN -> <re>\)</re>
+            LBRACK -> <re>\[</re>
+            RBRACK -> <re>\]</re>
+            LCURLY-> <re>\{</re>
+            RCURLY -> <re>\}</re>
+            NUMBER -> <re>[0-9]*\\.?[0-9]+([eE][-+]?[0-9]+)?</re>
+            COMMA -> <re>,</re>
+            COLON -> <re>:</re>
+            SEMI -> <re>;</re>
+            PIPE -> <re>\|</re>
+            DOT -> <re>\.</re>
+            FILE -> <re>file\\s</re>
+            SHOW -> <re>show\\s</re>
+            AS -> <re>as\\s</re>
+            TO -> <re>to\\s</re>
+            IF -> <re>if\\s</re>
+            THEN -> <re>then\\s</re>
+            WHILE -> <re>while\\s</re>
+            DO -> <re>do\\s</re>
+            SET -> <re>set\\s</re>
+            TOPLEVEL -> <re>toplevel\\s</re>
+            CSV -> <re>csv\\s</re>
+            SELECT -> <re>select\\s</re>
+            SELECTMANY -> <re>selectMany\\s</re>
+            WHERE -> <re>where\\s</re>
+            ORDERBY -> <re>orderBy\\s</re>
+            ORDERBYDESCENDING -> <re>orderByDescending\\s</re>
+            THENBY -> <re>thenBy\\s</re>
+            THENBYDESCENDING -> <re>thenByDescending\\s</re>
+            ANY -> <re>any\\s</re>
+            FIRST -> <re>first\\s</re>
+            LAST -> <re>last\\s</re>
+            SINGLE -> <re>single\\s</re>
+            GROUPBY -> <re>groupBy\\s</re>
+            TAKE -> <re>take\\s</re>
+            TAKEWHILE -> <re>takeWhile\\s</re>
+            SKIP -> <re>skip\\s</re>
+            SKIPWHILE -> <re>skipWhile\\s</re>
+            ALL -> <re>all\\s</re>
+            JOIN -> <re>join\\s</re>
+            GROUPJOIN -> <re>groupJoin\\s</re>
+            REVERSE -> <re>reverse\\s</re>
+            INTERSECT -> <re>intersect\\s</re>
+            UNION -> <re>union\\s</re>
+            DISTINCT -> <re>distinct\\s</re>
+            EXCEPT -> <re>except\\s</re>
+            ZIP -> <re>zip\\s</re>
+            CONCAT -> <re>concat\\s</re>
+            CONTAINS -> <re>contains\\s</re>
+            COUNT -> <re>count\\s</re>
+            AGGREGATE -> <re>aggregate\\s</re>
+            DEFAULTIFEMPTY -> <re>defaultIfEmpty\\s</re>
+            SEQUENCEEQUAL -> <re>sequenceEqual\\s</re>
+            TOLIST -> <re>toList\\s</re>
+            TODICTIONARY -> <re>toDictionary\\s</re>
+            TOLOOKUP -> <re>toLookup\\s</re>
+            FOREACH -> <re>foreach\\s</re>
+            SUM -> <re>sum\\s</re>
+            AVERAGE -> <re>average\\s</re>
+            MAX -> <re>max\\s</re>
+            MIN -> <re>min\\s</re>
+            OFTYPE -> <re>ofType\\s</re>
+            ELEMENTAT -> <re>elementAt\\s</re>
+            INSTANCEOF -> <re>instanceOf\\s</re>
+            FLOAT -> <re>float\\s</re>
+            INTEGER -> <re>integer\\s</re>
+            TEXT -> <re>text\\s</re>
+            CALL -> <re>call\\s</re>
+            GET -> <re>get\\s</re>
+            USE -> <re>use\\s</re>
+            FUNCTION -> <re>function\\s</re>
+            END -> <re>end\\s*</re>
+            AND -> <re>and\\s</re>
+            OR -> <re>or\\s</re>
+            NOT -> <re>not\\s</re>
+            BOOLOP -> <re><=|>=|>|<|==|!=</re>
+            EQUAL -> <re>=</re>
+            ID -> <re>[a-zA-Z_][a-zA-Z_0-9]*</re>
+            STRING -> <re>\\"[^\\"]*\\"</re>
+        end
+        ignore WHITESPACE end
+        discard GET COMMA COLON SEMI LCURLY RCURLY LPAREN RPAREN PIPE EQUAL FILE ARROW SHOW AS TO USE SET TOPLEVEL COMM QUESTION INSTANCEOF end
+        lookahead 3
+        {{
+            /* ERROR: Si esto se pone aqui, no se sustituye!!!: imports linq;
+            ERROR: revisar las expresiones regulares pq encaja p.ej or con ord_squares
+            OJO: range, repeat y empty son funciones: llamarlas como tales*/
+            #imports linq;
+            setvar defined_ids=[];
+            setvar linq_operators=["select","where","orderBy","any","first",
+                                   "last","single","groupBy","take","skip","all",
+                                   "join","reverse","intersect","union","distinct",
+                                   "except","zip","concat","contains","count","aggregate","elementAt",
+                                   "sum","average","max","min","ofType","foreach",
+                                   "selectMany","takeWhile","skipWhile","thenBy","orderByDescending","thenByDescending",
+                                   "groupJoin","defaultIfEmpty","sequenceEqual","toList","toDictionary","toLookup"];
+            begin
+                function openfile(path|?csv=""):
+                    if csv=="" then
+                        return _readflines(path);
+                    else
+                        #lns=lines by csv from path;
+                        lns= map |(x): _split(x,csv)| in _readflines(path);
+                        return lns;
+                    end;
+                end
+                function toFileId(id,_file):
+                    create files _file;
+                    if _type(id) in [_type(""),_type(unicode("")),_type(34),_type(90.67)] then
+                        _writef(_file,id);
+                    else 
+                       try
+                            _writeflines(_file,id.iterable);
+                       catch
+                           _writef(_file,_tostring(id));
+                       end;
+                    end;
+                end
+            endsec;
+        }}
+          /*linqy [returns linqy_val]: {{linqy_val="";}} (linq_st SEMI)+ {{linqy_val=_join(linqy_values,";") + ";";}};*/
+          linqy [returns linqy_val]: {{linqy_val="";}} (linq_st SEMI)+ {{
+                                            linqy_val=_join((filter |(x): x!=""| in linqy_values),";") + ";";
+                                            linqy_val=_rereplace(linqy_val,";;",";");}};
+
+          linq_st [returns linq_st_val] : {{linq_st_val=""; global defined_ids;}}
+                    | (TOPLEVEL idlist {{linq_st_val="global " + linq_st_values[0];}} )  
+                    | (USE boolexp {{linq_st_val="native " + linq_st_values[0];}} )
+                    | (SHOW ID {{linq_st_val="_print(" + linq_st_values[0].value + ")";}} )
+                    | (TO FILE STRING ID {{linq_st_val="toFileId(" + linq_st_values[1].value + "," + linq_st_values[0].value  + ")";}} )
+                    | (COMMENT {{linq_st_val="";}} )
+                    | (FUNCTION ID (LPAREN idlist RPAREN (linq_st)+ END) {{linq_st_val= "begin " + linq_st_values[0].value + " "  + linq_st_values[1].value + "("  + linq_st_values[2] + "): ";
+                                                 cont=3;
+                                                 for i=3,i<_size(linq_st_values),i++ do
+                                                     if _type(linq_st_values[i])==_type(new token) then
+                                                         linq_st_val=linq_st_val + linq_st_values[i].value;
+                                                     else
+                                                         if cont== _size(linq_st_values)-2 then
+                                                             linq_st_val=linq_st_val + "return " + linq_st_values[i] + ";";
+                                                         else
+                                                             linq_st_val=linq_st_val + linq_st_values[i] + ";";
+                                                         end;
+                                                     end;
+                                                     cont++;
+                                                 end; 
+                                                 linq_st_val=linq_st_val + " endsec; ";
+                                                 /*Dentro de las funciones eliminar setvar porque redeclara los argumentos!! :(*/
+                                                 linq_st_val= _rereplace(linq_st_val,"setvar\s+[a-zA-Z_][a-zA-Z_0-9]*\s*;","");}} )
+                    | (IF boolexp (THEN (linq_st)+ END) {{linq_st_val= linq_st_values[0].value + " "  + linq_st_values[1] + " "  + linq_st_values[2].value + " ";
+                                                 for i=3,i<_size(linq_st_values),i++ do
+                                                     if _type(linq_st_values[i])==_type(new token) then
+                                                         linq_st_val=linq_st_val + linq_st_values[i].value;
+                                                     else
+                                                         linq_st_val=linq_st_val + linq_st_values[i] + ";";
+                                                     end;
+                                                 end; 
+                                                 linq_st_val=linq_st_val + ";";}} )
+                    | (WHILE boolexp (DO (linq_st)+ END) {{linq_st_val= linq_st_values[0].value + " "  + linq_st_values[1]+ " "  + linq_st_values[2].value + " ";
+                                                 for i=3,i<_size(linq_st_values),i++ do
+                                                     if _type(linq_st_values[i])==_type(new token) then
+                                                         linq_st_val=linq_st_val + linq_st_values[i].value;
+                                                     else
+                                                         linq_st_val=linq_st_val + linq_st_values[i] + ";";
+                                                     end;
+                                                 end; 
+                                                 linq_st_val=linq_st_val + ";";}} )
+                    | (SET ID EQUAL source {{ if linq_st_values[0].value not in defined_ids then
+                                              linq_st_val= linq_st_val + "setvar " + linq_st_values[0].value + ";";
+                                              defined_ids :: (linq_st_values[0].value);
+                                          end;
+                                          linq_st_val= linq_st_val + linq_st_values[0].value + "=" + linq_st_values[1];}} )
+                    | boolexp {{linq_st_val=linq_st_values[0];}};
+
+          source [returns source_val] : {{global linq_operators;source_val="";}} 
+                   | (FILE STRING [ AS CSV STRING {{_print("as csv!!");}}] {{
+                                   #_print("VALOR DE source_values: " + _tostring(source_values));
+                                   if _size(source_values)==1 then
+                                       source_val="linq(openfile(" + source_values[0].value + "))";
+                                   else
+                                       source_val="linq(openfile(" + source_values[0].value + ","+ source_values[2].value + "))";
+                                   end; }})
+                   | (ARROW ID linqoperator source_item (ARROW linqoperator source_item)* {{
+                            source_val=source_values[0].value;
+                            foreach item in ([1:null] in source_values) do
+                               if _strip(item,"%") in linq_operators then
+                                   source_val=source_val + "."  +  item;
+                               else
+                                   if _strip(item,"%")=="." then 
+                                       source_val=source_val + "()";
+                                   else
+                                       source_val=source_val + "(" + item + ")";
+                                   end;
+                               end;
+                            end; }} )
+                   | (INSTANCEOF ID (DOT ID)* LPAREN boolexp (COMMA boolexp)* RPAREN{{
+                            source_val=source_values[0].value;
+                            _print("LISTA en instanceOf: "  + _tostring(source_values));
+                            lpar=0;
+                            foreach item in ([1:null] in source_values)  do
+                                if _type(item)==_type(new token) then
+                                    source_val=source_val + item.value;
+                                else
+                                    if lpar==0 then
+                                        source_val=source_val + "(";
+                                        lpar=1;
+                                    end;
+                                    source_val=source_val + item;
+                                end;
+                            end;
+                            source_val=source_val + ")"; }} )
+                   | boolexp {{source_val=source_values[0];}};
+
+          source_item [returns source_item_val] : {{source_item_val="";}} 
+                                                 | (DOT {{source_item_val=".";}})
+                                                 | (INTEGER {{source_item_val= "33333333";}} )
+                                                 | (FLOAT {{source_item_val= "458970.55555555";}} )
+                                                 | (TEXT {{source_item_val= "\\"xyz\\"";}} )
+                                                 | (boolexp (COMMA boolexp)* {{source_item_val=_join(source_item_values,",");}});
+
+          idlist [returns idlist_val] : {{idlist_val="";}} ID (COMMA ID)* {{ if _size(idlist_values)==1 then
+                                                               idlist_val=idlist_values[0].value;
+                                                           else
+                                                               idlist_val=reduce |(x,y): x.value + "," + y.value| in idlist_values;
+                                                           end;   }};
+
+          linqoperator [returns linqoperator_val] :  {{linqoperator_val="";}} 
+                         | (SELECT) 
+                         | (SELECTMANY) 
+                         | (WHERE) 
+                         | (ORDERBY) 
+                         | (ORDERBYDESCENDING) 
+                         | (THENBY) 
+                         | (THENBYDESCENDING) 
+                         | (ANY) 
+                         | (FIRST) 
+                         | (LAST) 
+                         | (SINGLE)
+                         | (GROUPBY) 
+                         | (TAKE)
+                         | (TAKEWHILE) 
+                         | (SKIP)
+                         | (SKIPWHILE) 
+                         | (ALL) 
+                         | (JOIN)
+                         | (GROUPJOIN) 
+                         | (REVERSE) 
+                         | (INTERSECT)
+                         | (UNION) 
+                         | (DISTINCT) 
+                         | (EXCEPT) 
+                         | (ZIP) 
+                         | (CONCAT) 
+                         | (CONTAINS) 
+                         | (COUNT) 
+                         | (AGGREGATE)
+                         | (DEFAULTIFEMPTY) 
+                         | (SEQUENCEEQUAL) 
+                         | (TOLIST) 
+                         | (TODICTIONARY) 
+                         | (TOLOOKUP) 
+                         | (FOREACH)
+                         | (SUM) 
+                         | (AVERAGE) 
+                         | (MAX) 
+                         | (MIN) 
+                         | (RANGE) 
+                         | (REPEAT) 
+                         | (CONVERT) 
+                         | (OFTYPE)
+                         | (ELEMENTAT)
+                         | (EMPTY) {{linqoperator_val= "%" + _strip(linqoperator_values[0].value) + "%";
+                                     if linqoperator_val=="except" then linqoperator_val="except_"; end;}}; 
+        
+
+        boolexp [returns boolexp_val] : {{boolexp_val="";}} (orexp (AND orexp)*{{
+               foreach item in boolexp_values do
+                   if _type(item)==_type(new token) then
+                       boolexp_val=boolexp_val + "  " +  item.value + " ";
+                   else
+                       boolexp_val=boolexp_val + item;
+                   end;
+                end;}});
+
+        orexp [returns orexp_val] : {{orexp_val="";}}  (notexp (OR notexp)* {{
+               foreach item in orexp_values do
+                   if _type(item)==_type(new token) then
+                       orexp_val=orexp_val + " " +  item.value + " ";
+                   else
+                       orexp_val=orexp_val + item;
+                   end;
+                end;}});
+        /*Con esto siempre se va por aqui: | (LPAREN boolexp RPAREN {{notexp_val= "(" + notexp_values[0] + ")";}})*/
+        notexp [returns notexp_val] : {{notexp_val="";}}  | (NOT cmpexp {{notexp_val= " not " + notexp_values[1];}}) 
+                 | cmpexp {{notexp_val=notexp_values[0];}} ;
+
+        cmpexp [returns cmpexp_val] : {{cmpexp_val="";}}  (expr (BOOLOP expr)* {{
+               foreach item in cmpexp_values do
+                   if _type(item)==_type(new token) then
+                       cmpexp_val=cmpexp_val + item.value;
+                   else
+                       cmpexp_val=cmpexp_val + item;
+                   end;
+                end;}});
+
+        /*expr [returns expr_val] : {{expr_val="";}}  (term (PLUSMIN term)*{{*/
+        expr [returns expr_val] : {{expr_val="";}}  (term (PLUSMIN expr)*{{
+               foreach item in expr_values do
+                   if _type(item)==_type(new token) then
+                       expr_val=expr_val + item.value;
+                   else
+                       expr_val=expr_val + item;
+                   end;
+                end;}});
+
+        term [returns term_val] : {{term_val="";}} (exp (TIMESDIV exp)* {{
+               foreach item in term_values do
+                   if _type(item)==_type(new token) then
+                       term_val=term_val + item.value;
+                   else
+                       term_val=term_val + item;
+                   end;
+                end;}});
+
+        exp [returns exp_val] : {{exp_val="";}} (factor (EXP factor)* {{
+               foreach item in exp_values do
+                   if _type(item)==_type(new token) then
+                       exp_val=exp_val + "**";
+                   else
+                       exp_val=exp_val + item;
+                   end;
+                end;}});
+
+        factor [returns facval] : {{facval="";}} 
+                  | (PLUSMIN expr {{facval=factor_values[0].value + factor_values[1];}})
+                  | (NUMBER {{facval=factor_values[0].value;}})
+                  | (ID (DOT ID)*{{
+                    facval=factor_values[0].value;
+                    if _size(factor_values)>1 then
+                        for i=1,i<_size(factor_values),i++ do
+                            facval=facval+factor_values[i].value;
+                        end;
+                    end; }})
+                  | (STRING {{facval=factor_values[0].value;}}) 
+                  | (PIPE arglist PIPE COLON  boolexp {{facval="|(" + _replace(factor_values[0],"@","") + "): " + factor_values[1] + "|";}})
+                  | (LPAREN boolexp RPAREN {{facval="(" + factor_values[0] + ")";}})  
+                  | (CALL funcall {{facval=factor_values[1];}})
+                  | (GET (ID (DOT ID)*) (LBRACK expr RBRACK)+ {{#_print("VALOR DE LA LISTA EN GET: " + _tostring(factor_values));
+            for i=0, i<_size(factor_values)-1,i++ do  
+                if _type(factor_values[i])==_type(new token) then
+                    facval=facval + factor_values[i].value;
+                else  
+                    facval=facval + factor_values[i];
+                end;
+            end;
+            facval= facval + "]";
+            #_print("facval: " + facval);
+            /*facval=facval + "[" + factor_values[-1] + "]";*/}})  
+                  | (LBRACK RBRACK {{facval="[]";}}) 
+                  | (LBRACK expr (COMMA expr)* RBRACK {{#_print("VALOR DE LA LISTA EN LIST: " + _tostring(factor_values));
+                                                        facval="[" + _join((filter |(x): _type(x)!=_type(new token)| in factor_values),",") + "]";
+                                                        #_print("facval: " + facval);}}) 
+                  | (LCURLY RCURLY {{facval="{}";}})
+                  | (LCURLY pair (COMMA pair)* RCURLY {{facval="{" + _join(factor_values,",") + "}";}})
+                  | (QUESTION boolexp ARROW expr COLON expr {{facval= factor_values[1] + " if " + factor_values[0] + " else " + factor_values[2];}}); 
+
+        funcall [returns funcall_val] : {{funcall_val="";}} |(ID (DOT ID)* LPAREN arglist RPAREN (DOT funcall)*)
+                  |(GET (ID (DOT ID)*) (LBRACK expr RBRACK)+ LPAREN arglist RPAREN)
+                  {{ #_print("En funcall: " + _tostring(funcall_values));
+                             for i=0, i<_size(funcall_values)-1,i++ do 
+                                 #_print("PROCESANDO: " + _tostring(funcall_values[i]));
+                                 if _type(funcall_values[i])==_type(new token) then 
+                                     funcall_val=funcall_val + funcall_values[i].value;
+                                 else
+                                     if funcall_values[i] and funcall_values[i][0]=="@" then
+                                         funcall_val=funcall_val + "(" +  _replace(funcall_values[i],"@","") + ")";
+                                     else
+                                         funcall_val=funcall_val + funcall_values[i];
+                                     end;
+                                 end;
+                             end; 
+                             if funcall_values[i] and funcall_values[-1][0]=="@" then
+                                 funcall_val=funcall_val + "(" +  _replace(funcall_values[-1],"@","") + ")";
+                             else
+                                 funcall_val=funcall_val + funcall_values[-1];
+                             end;
+                             if funcall_val[-1]!=")" then funcall_val=funcall_val + "()"; end;#???}};
+
+        arglist [returns arglist_val]: {{arglist_val="";}} | (DOT {{arglist_val="@"; }})
+                    | (expr (COMMA expr)*{{ arglist_val= arglist_values[0];
+                     if _size(arglist_values)>1 then
+                         for i=1,i< _size(arglist_values),i=i+1 do
+                           arglist_val=arglist_val + "," + arglist_values[i];
+                         end;
+                     end;
+                     #_print("ARGLIST: " + _tostring(arglist_values));
+                     arglist_val="@" + arglist_val;}});
+
+        pair [returns pairval] : | (NUMBER COLON expr {{pairval=pair_values[0].value + ":" + pair_values[1]; }})
+                | (STRING COLON expr {{pairval=pair_values[0].value + ":" + pair_values[1]; }}) 
+                | (ID COLON expr {{pairval=pair_values[0].value + ":" + pair_values[1]; }});
+    end
+    /*codigo de la aplicacion
+    {{
+    setvar data="ord_squares= lista select |x|:x*x -> orderby |x|:x ->count .;show yomime;datos=file \\"myfil.txt\\" as csv \\",\\";(4+3)==7 and 58 < (1+3)-(58*67)/[get x.y.z.tevi[\\"tralari\\"],456,[3,4],{a:3,\\"xyz\\":90,56:des},call fun(5, call void(get gg[6])), call pp(.),|x,y|:x^y] or not get fff[90*3] >= call sin(100);45<67;call ff(x,y,z);";
+    lexx.setInput(data);
+    _print(_tostring(linqy()));
+    Sin parentesis no lo reconoce como expr!!
+    data= "limit=(90+54*89);datos= file \\"estafilos2012.txt\\" as csv \\",\\"; num_servicios= datos select |x|: get x[6] -> oftype number -> where |x|:x>40 -> count .;show datos;";
+    lexx.setInput(data);
+    _print(_tostring(linqy()));}}*/
+""";
+lexx.setInput(input);
+setvar parse_str= grammar();
+_print("Parser generado:\n");
+_print(parse_str);
+create files "linqy_parser.bridge";
+#Cambio para que escriba bien en el archivo (revisarlo)
+words parse_str.replace("'\"","\"").replace("\"'","\"").replace("u\"","\"") to "linqy_parser.bridge";
+
+_print("Ok");

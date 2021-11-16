@@ -1,0 +1,140 @@
+/*Pruebas de linqy_parser*/
+
+imports linq;
+imports linqy_parser;
+
+setvar linqy_orders=[];
+native random;
+native time;
+native cStringIO;
+/*Funciones de utilidad para numeros aleatorios*/
+setvar random_kinds={ "uniform": random.uniform,
+                      "betavar" : random.betavariate,
+                      "expovar" : random.expovariate,
+                      "gammavar" : random.gammavariate,
+                      "normal" : random.normalvariate,
+                      "lognormal" : random.lognormvariate,
+                      "vonmises" : random.vonmisesvariate,
+                      "pareto" : random.paretovariate,
+                      "weibull" : random.weibullvariate};
+begin
+    function randomSample(numels,kind,p1,p2):
+        global random_kinds;
+        samples=[];params=[];
+        fun=random_kinds[kind]; #Falla si se pasa una que no conoce (es deseable)
+        if kind in ["expovar","paretovar"] then
+            params=[p1];
+        else
+            params=[p1,p2];
+        end;
+        for i=0,i< numels,i++ do
+            samples :: (fun(|*params));
+        end;
+        return linq(samples);
+    end
+
+    function getRandom():
+        return random.random();
+    end
+
+    function getRandint(start,%end%):
+        return random.randint(start,%end%);
+    end
+
+    function getRandomSample(seq,numels):
+        seq=seq.iterable;
+        return linq(random.sample(seq,numels));
+    end
+    /*Funcion para optimizar el encadenamiento de cadenas
+    (bridge usa el "+" sobrecargado, que es muy lento)*/
+    function strAggregate(seq|?init=""):
+        buffer=cStringIO.StringIO();
+        if init!="" then buffer.write(init); end;
+        foreach item in seq do
+            buffer.write(item);
+        end;
+        return buffer.getvalue();
+    end
+    /*Protege los nombres de palabras clave de bridge
+    cuando se usan en una llamada a funcion*/
+    function checkForBridge(cad):
+        foreach item in [".where",".select",".take",".count",".foreach",".groupby",".repeat"] do
+            cad=_replace(cad,item,".%" + item.strip(".") + "%");
+        end;
+        /*foreach item in ["function "] do
+            cad=_replace(cad,item,"%" + item.strip() + "% ");
+        end;*/
+        return cad;
+    end
+    /*Asignar un item de diccionario (la gramatica tal como esta no lo permite)*/
+    function dictAdd(dict,key,value):
+        dict[key]=value;
+    end
+    /*Guardar (serializar) un diccionario*/
+    function dictSave(dict,path):
+        serialize dict in path;
+        return 1;
+    end
+    /*Cargar (deserializar) un diccionario*/
+    function dictLoad(path):
+        return deserialize from path;
+    end
+    /*Meter un item en una lista (la gramatica tal como esta no lo permite)*/
+    function listAdd(l,value):
+        l::value;
+    end
+    /*Guardar (serializar) un diccionario*/
+    function listSave(lst,path):
+        serialize lst in path;
+        return 1;
+    end
+    /*Cargar (deserializar) un diccionario*/
+    function listLoad(path):
+        return deserialize from path;
+    end
+    /*Obtener iterable de un enumerable (tambien vale linq_item.iterable)*/
+    function getIterable(linq_item):
+        return linq_item.iterable;
+    end
+    /* Devuelve un diccionario con las siguientes entradas: affected(num. filas afectadas o -1),
+    data(datos recuperados),names(nombres de las columnas)*/
+    function queryDB(kind,db,connstr,query):
+        results=null;
+        if kind=="sqlite" then
+            results= consult database db with query;
+        else
+            if kind=="ado" then
+                results= consult database db as connstr with query;
+            else
+                raise "Linqy Error: Unsupported database type.";
+            end;
+        end;
+        return results;
+    end
+endsec;
+
+setvar data,lnq="";
+
+setvar cmdln=_cmdline();
+_print("cmdline: " + _tostring(cmdln));
+if cmdln==[] then
+    /*Bucle del interprete*/
+    while true do
+        data=_input("linqy>");
+        if data==".exit" then break; end;
+        lexx.setInput(data);
+        lnq= linqy();
+        lnq=checkForBridge(lnq);
+        run lnq;
+        linqy_orders :: data;
+    end;
+    _print("Ordenes ejecutadas en esta sesion:\n" + _tostring(linqy_orders));
+else
+    setvar read=_readf(cmdln[0]);
+    #_print("leido: " + read);
+    lexx.setInput(read);
+    lnq=linqy();
+    lnq=checkForBridge(lnq);
+    _print("A ejecutar: " + lnq);
+    run lnq;
+end;

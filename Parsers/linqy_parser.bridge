@@ -1,0 +1,1490 @@
+
+#Grammar expr
+imports stack;
+imports parserskit;
+#Funciones auxiliares para parsers con bactracking y memoizing
+begin
+    function clear_memos():
+        global memos;
+        memos={};
+
+    end
+    function _alreadyParsed(memo,pos):
+        if pos in _keys(memo) then
+            return memo[pos];
+        else
+            return null;
+        end;
+    end
+    function _memoize(memo,start,stop):
+        global memos;
+        _print("Memos antes de _memoize: " + _tostring(memos));
+        memo[start]=stop;
+        _print("Memos despues de _memoize: " + _tostring(memos));
+    end
+endsec;
+setvar memos={};
+;
+setvar lexx = new lexer;
+setvar _AST;
+setvar _stack = new Stack;
+#Tokens table
+setvar table=[
+    ["\s+","WHITESPACE",null,false],
+    ["\->","ARROW",null,false],
+    ["\#[^\#]*[\#]","COMMENT",null,false],
+    ["\+|\-","PLUSMIN",null,false],
+    ["\*|/","TIMESDIV",null,false],
+    ["\^","EXP",null,false],
+    ["\?","QUESTION",null,false],
+    ["\(","LPAREN",null,false],
+    ["\)","RPAREN",null,false],
+    ["\[","LBRACK",null,false],
+    ["\]","RBRACK",null,false],
+    ["\{","LCURLY",null,false],
+    ["\}","RCURLY",null,false],
+    ["[0-9]*\.?[0-9]+([eE][-+]?[0-9]+)?","NUMBER",null,false],
+    [",","COMMA",null,false],
+    [":","COLON",null,false],
+    [";","SEMI",null,false],
+    ["\|","PIPE",null,false],
+    ["\.","DOT",null,false],
+    ["file\s","FILE",null,false],
+    ["show\s","SHOW",null,false],
+    ["as\s","AS",null,false],
+    ["to\s","TO",null,false],
+    ["if\s","IF",null,false],
+    ["then\s","THEN",null,false],
+    ["while\s","WHILE",null,false],
+    ["do\s","DO",null,false],
+    ["set\s","SET",null,false],
+    ["toplevel\s","TOPLEVEL",null,false],
+    ["csv\s","CSV",null,false],
+    ["select\s","SELECT",null,false],
+    ["selectMany\s","SELECTMANY",null,false],
+    ["where\s","WHERE",null,false],
+    ["orderBy\s","ORDERBY",null,false],
+    ["orderByDescending\s","ORDERBYDESCENDING",null,false],
+    ["thenBy\s","THENBY",null,false],
+    ["thenByDescending\s","THENBYDESCENDING",null,false],
+    ["any\s","ANY",null,false],
+    ["first\s","FIRST",null,false],
+    ["last\s","LAST",null,false],
+    ["single\s","SINGLE",null,false],
+    ["groupBy\s","GROUPBY",null,false],
+    ["take\s","TAKE",null,false],
+    ["takeWhile\s","TAKEWHILE",null,false],
+    ["skip\s","SKIP",null,false],
+    ["skipWhile\s","SKIPWHILE",null,false],
+    ["all\s","ALL",null,false],
+    ["join\s","JOIN",null,false],
+    ["groupJoin\s","GROUPJOIN",null,false],
+    ["reverse\s","REVERSE",null,false],
+    ["intersect\s","INTERSECT",null,false],
+    ["union\s","UNION",null,false],
+    ["distinct\s","DISTINCT",null,false],
+    ["except\s","EXCEPT",null,false],
+    ["zip\s","ZIP",null,false],
+    ["concat\s","CONCAT",null,false],
+    ["contains\s","CONTAINS",null,false],
+    ["count\s","COUNT",null,false],
+    ["aggregate\s","AGGREGATE",null,false],
+    ["defaultIfEmpty\s","DEFAULTIFEMPTY",null,false],
+    ["sequenceEqual\s","SEQUENCEEQUAL",null,false],
+    ["toList\s","TOLIST",null,false],
+    ["toDictionary\s","TODICTIONARY",null,false],
+    ["toLookup\s","TOLOOKUP",null,false],
+    ["foreach\s","FOREACH",null,false],
+    ["sum\s","SUM",null,false],
+    ["average\s","AVERAGE",null,false],
+    ["max\s","MAX",null,false],
+    ["min\s","MIN",null,false],
+    ["ofType\s","OFTYPE",null,false],
+    ["elementAt\s","ELEMENTAT",null,false],
+    ["instanceOf\s","INSTANCEOF",null,false],
+    ["float\s","FLOAT",null,false],
+    ["integer\s","INTEGER",null,false],
+    ["text\s","TEXT",null,false],
+    ["call\s","CALL",null,false],
+    ["get\s","GET",null,false],
+    ["use\s","USE",null,false],
+    ["function\s","FUNCTION",null,false],
+    ["end\s*","END",null,false],
+    ["and\s","AND",null,false],
+    ["or\s","OR",null,false],
+    ["not\s","NOT",null,false],
+    ["<=|>=|>|<|==|!=","BOOLOP",null,false],
+    ["=","EQUAL",null,false],
+    ["[a-zA-Z_][a-zA-Z_0-9]*","ID",null,false],
+    ["\"[^\"]*\"","STRING",null,false]
+]
+;
+lexx.setTable(table);
+setvar ignore_list=["WHITESPACE"];
+lexx.setIgnore(ignore_list);
+
+#start code for on_enter,on_exit rules
+ 
+#end code for on_enter,on_exit rules
+
+#start pre_code
+    
+                /* ERROR: Si esto se pone aqui, no se sustituye!!!: imports linq;
+                ERROR: revisar las expresiones regulares pq encaja p.ej or con ord_squares
+                OJO: range, repeat y empty son funciones: llamarlas como tales*/
+                #imports linq;
+                setvar defined_ids=[];
+                setvar linq_operators=["select","where","orderBy","any","first",
+                                       "last","single","groupBy","take","skip","all",
+                                       "join","reverse","intersect","union","distinct",
+                                       "except","zip","concat","contains","count","aggregate","elementAt",
+                                       "sum","average","max","min","ofType","foreach",
+                                       "selectMany","takeWhile","skipWhile","thenBy","orderByDescending","thenByDescending",
+                                       "groupJoin","defaultIfEmpty","sequenceEqual","toList","toDictionary","toLookup"];
+                begin
+                    function openfile(path|?csv=""):
+                        if csv=="" then
+                            return _readflines(path);
+                        else
+                            #lns=lines by csv from path;
+                            lns= map |(x): _split(x,csv)| in _readflines(path);
+                            return lns;
+                        end;
+                    end
+                    function toFileId(id,_file):
+                        create files _file;
+                        if _type(id) in [_type(""),_type(unicode("")),_type(34),_type(90.67)] then
+                            _writef(_file,id);
+                        else 
+                           try:
+                                _writeflines(_file,id.iterable);
+                           catch:
+                               _writef(_file,_tostring(id));
+                           end;
+                        end;
+                    end
+                endsec;
+            
+ 
+#end pre_code
+
+begin
+
+    function linqy():
+        setvar linqy_values=[];
+                linqy_val="";
+         linqy_values :: linq_st();
+        
+        lexx.nextToken("SEMI");
+        
+    
+        while lexx.lookahead(1) and lexx.lookahead(1)[0].type!="EOF" do
+             linqy_values :: linq_st();
+            
+            lexx.nextToken("SEMI");
+            
+        
+    
+        end;
+        
+                                                    linqy_val=_join((filter |(x): x!=""| in linqy_values),";") + ";";
+                                                    linqy_val=_rereplace(linqy_val,";;",";");
+        
+        return linqy_val;
+        
+    
+
+    end
+
+    
+    function linq_st():
+        setvar linq_st_values=[];
+                linq_st_val=""; global defined_ids;
+         if lexx.lookahead(1)[0].type=="TOPLEVEL" then 
+                lexx.nextToken("TOPLEVEL");
+            
+            linq_st_values :: idlist();
+            
+            linq_st_val="global " + linq_st_values[0];
+        else
+        if lexx.lookahead(1)[0].type=="USE" then 
+                lexx.nextToken("USE");
+            
+            linq_st_values :: boolexp();
+            
+            linq_st_val="native " + linq_st_values[0];
+        else
+        if lexx.lookahead(1)[0].type=="SHOW" then 
+                lexx.nextToken("SHOW");
+            
+            linq_st_values :: lexx.nextToken("ID");
+            
+            linq_st_val="_print(" + linq_st_values[0].value + ")";
+        else
+        if lexx.lookahead(1)[0].type=="TO" then 
+                lexx.nextToken("TO");
+            
+            lexx.nextToken("FILE");
+            
+            linq_st_values :: lexx.nextToken("STRING");
+            
+            linq_st_values :: lexx.nextToken("ID");
+            
+            linq_st_val="toFileId(" + linq_st_values[1].value + "," + linq_st_values[0].value  + ")";
+        else
+        if lexx.lookahead(1)[0].type=="COMMENT" then 
+                linq_st_values :: lexx.nextToken("COMMENT");
+            
+            linq_st_val="";
+        else
+        if lexx.lookahead(1)[0].type=="FUNCTION" then 
+                linq_st_values :: lexx.nextToken("FUNCTION");
+            
+            linq_st_values :: lexx.nextToken("ID");
+            
+            lexx.nextToken("LPAREN");
+            
+            linq_st_values :: idlist();
+            
+            lexx.nextToken("RPAREN");
+            
+            linq_st_values :: linq_st();
+            
+        while lexx.lookahead(1)[0].type!="END" do
+                 linq_st_values :: linq_st();
+                
+            
+        
+            end;
+            linq_st_values :: lexx.nextToken("END");
+            
+        linq_st_val= "begin " + linq_st_values[0].value + " "  + linq_st_values[1].value + "("  + linq_st_values[2] + "): ";
+                                                         cont=3;
+                                                         for i=3,i<_size(linq_st_values),i++ do
+                                                             if _type(linq_st_values[i])==_type(new token) then
+                                                                 linq_st_val=linq_st_val + linq_st_values[i].value;
+                                                             else
+                                                                 if cont== _size(linq_st_values)-2 then
+                                                                     linq_st_val=linq_st_val + "return " + linq_st_values[i] + ";";
+                                                                 else
+                                                                     linq_st_val=linq_st_val + linq_st_values[i] + ";";
+                                                                 end;
+                                                             end;
+                                                             cont++;
+                                                         end; 
+                                                         linq_st_val=linq_st_val + " endsec; ";
+                                                         /*Dentro de las funciones eliminar setvar porque redeclara los argumentos!! :(*/
+                                                         linq_st_val= _rereplace(linq_st_val,"setvar\s+[a-zA-Z_][a-zA-Z_0-9]*\s*;","");else
+        if lexx.lookahead(1)[0].type=="IF" then 
+                linq_st_values :: lexx.nextToken("IF");
+            
+            linq_st_values :: boolexp();
+            
+            linq_st_values :: lexx.nextToken("THEN");
+            
+            linq_st_values :: linq_st();
+            
+        while lexx.lookahead(1)[0].type!="END" do
+                 linq_st_values :: linq_st();
+                
+            
+        
+            end;
+            linq_st_values :: lexx.nextToken("END");
+            
+        linq_st_val= linq_st_values[0].value + " "  + linq_st_values[1] + " "  + linq_st_values[2].value + " ";
+                                                         for i=3,i<_size(linq_st_values),i++ do
+                                                             if _type(linq_st_values[i])==_type(new token) then
+                                                                 linq_st_val=linq_st_val + linq_st_values[i].value;
+                                                             else
+                                                                 linq_st_val=linq_st_val + linq_st_values[i] + ";";
+                                                             end;
+                                                         end; 
+                                                         linq_st_val=linq_st_val + ";";else
+        if lexx.lookahead(1)[0].type=="WHILE" then 
+                linq_st_values :: lexx.nextToken("WHILE");
+            
+            linq_st_values :: boolexp();
+            
+            linq_st_values :: lexx.nextToken("DO");
+            
+            linq_st_values :: linq_st();
+            
+        while lexx.lookahead(1)[0].type!="END" do
+                 linq_st_values :: linq_st();
+                
+            
+        
+            end;
+            linq_st_values :: lexx.nextToken("END");
+            
+        linq_st_val= linq_st_values[0].value + " "  + linq_st_values[1]+ " "  + linq_st_values[2].value + " ";
+                                                         for i=3,i<_size(linq_st_values),i++ do
+                                                             if _type(linq_st_values[i])==_type(new token) then
+                                                                 linq_st_val=linq_st_val + linq_st_values[i].value;
+                                                             else
+                                                                 linq_st_val=linq_st_val + linq_st_values[i] + ";";
+                                                             end;
+                                                         end; 
+                                                         linq_st_val=linq_st_val + ";";else
+        if lexx.lookahead(1)[0].type=="SET" then 
+                lexx.nextToken("SET");
+            
+            linq_st_values :: lexx.nextToken("ID");
+            
+            lexx.nextToken("EQUAL");
+            
+            linq_st_values :: source();
+            
+             if linq_st_values[0].value not in defined_ids then
+                                                          linq_st_val= linq_st_val + "setvar " + linq_st_values[0].value + ";";
+                                                          defined_ids :: (linq_st_values[0].value);
+                                                      end;
+                                                      linq_st_val= linq_st_val + linq_st_values[0].value + "=" + linq_st_values[1];
+        else
+                linq_st_values :: boolexp();
+            
+            linq_st_val=linq_st_values[0];
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        
+        return linq_st_val;
+        
+    
+
+    end
+
+    
+    function source():
+        setvar source_values=[];
+                global linq_operators;source_val="";
+         if lexx.lookahead(1)[0].type=="FILE" then 
+                lexx.nextToken("FILE");
+            
+            source_values :: lexx.nextToken("STRING");
+            
+        if lexx.lookahead(1)[0].type=="AS" then
+                lexx.nextToken("AS");
+                
+            
+                source_values :: lexx.nextToken("CSV");
+                
+            
+                source_values :: lexx.nextToken("STRING");
+                
+                _print("as csv!!");
+            
+        
+        end;
+        
+                                           #_print("VALOR DE source_values: " + _tostring(source_values));
+                                           if _size(source_values)==1 then
+                                               source_val="linq(openfile(" + source_values[0].value + "))";
+                                           else
+                                               source_val="linq(openfile(" + source_values[0].value + ","+ source_values[2].value + "))";
+                                           end; else
+        if lexx.lookahead(1)[0].type=="ARROW" then 
+                lexx.nextToken("ARROW");
+            
+            source_values :: lexx.nextToken("ID");
+            
+            source_values :: linqoperator();
+            
+            source_values :: source_item();
+            
+        
+            while lexx.lookahead(1)[0].type!="EOF" 
+            and lexx.lookahead(1)[0].type =="ARROW" do
+                lexx.nextToken("ARROW");
+                
+                source_values :: linqoperator();
+                
+                source_values :: source_item();
+                
+            
+        
+            end;
+            
+                                        source_val=source_values[0].value;
+                                        foreach item in ([1:null] in source_values) do
+                                           if _strip(item,"%") in linq_operators then
+                                               source_val=source_val + "."  +  item;
+                                           else
+                                               if _strip(item,"%")=="." then 
+                                                   source_val=source_val + "()";
+                                               else
+                                                   source_val=source_val + "(" + item + ")";
+                                               end;
+                                           end;
+                                        end; 
+        else
+        if lexx.lookahead(1)[0].type=="INSTANCEOF" then 
+                lexx.nextToken("INSTANCEOF");
+            
+            source_values :: lexx.nextToken("ID");
+            
+        
+            while lexx.lookahead(1)[0].type!="EOF" 
+            and lexx.lookahead(1)[0].type =="DOT" do
+                source_values :: lexx.nextToken("DOT");
+                
+                source_values :: lexx.nextToken("ID");
+                
+            
+        
+            end;
+            lexx.nextToken("LPAREN");
+            
+            source_values :: boolexp();
+            
+        
+            while lexx.lookahead(1)[0].type!="EOF" 
+            and lexx.lookahead(1)[0].type =="COMMA" do
+                lexx.nextToken("COMMA");
+                
+                source_values :: boolexp();
+                
+            
+        
+            end;
+            lexx.nextToken("RPAREN");
+            
+            
+                                        source_val=source_values[0].value;
+                                        _print("LISTA en instanceOf: "  + _tostring(source_values));
+                                        lpar=0;
+                                        foreach item in ([1:null] in source_values)  do
+                                            if _type(item)==_type(new token) then
+                                                source_val=source_val + item.value;
+                                            else
+                                                if lpar==0 then
+                                                    source_val=source_val + "(";
+                                                    lpar=1;
+                                                end;
+                                                source_val=source_val + item;
+                                            end;
+                                        end;
+                                        source_val=source_val + ")"; 
+        else
+                source_values :: boolexp();
+            
+            source_val=source_values[0];
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        
+        return source_val;
+        
+    
+
+    end
+
+    
+    function source_item():
+        setvar source_item_values=[];
+                source_item_val="";
+         if lexx.lookahead(1)[0].type=="DOT" then 
+                source_item_values :: lexx.nextToken("DOT");
+            
+            source_item_val=".";
+        else
+        if lexx.lookahead(1)[0].type=="INTEGER" then 
+                source_item_values :: lexx.nextToken("INTEGER");
+            
+            source_item_val= "33333333";
+        else
+        if lexx.lookahead(1)[0].type=="FLOAT" then 
+                source_item_values :: lexx.nextToken("FLOAT");
+            
+            source_item_val= "458970.55555555";
+        else
+        if lexx.lookahead(1)[0].type=="TEXT" then 
+                source_item_values :: lexx.nextToken("TEXT");
+            
+            source_item_val= "\"xyz\"";
+        else
+                source_item_values :: boolexp();
+            
+        
+            while lexx.lookahead(1)[0].type!="EOF" 
+            and lexx.lookahead(1)[0].type =="COMMA" do
+                lexx.nextToken("COMMA");
+                
+                source_item_values :: boolexp();
+                
+            
+        
+            end;
+            source_item_val=_join(source_item_values,",");
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        
+        return source_item_val;
+        
+    
+
+    end
+
+    
+    function idlist():
+        setvar idlist_values=[];
+                idlist_val="";
+         idlist_values :: lexx.nextToken("ID");
+        
+     
+        while lexx.lookahead(1)[0].type!="EOF" 
+        and lexx.lookahead(1)[0].type =="COMMA" do
+            lexx.nextToken("COMMA");
+            
+            idlist_values :: lexx.nextToken("ID");
+            
+        
+    
+        end;
+         if _size(idlist_values)==1 then
+                                                                       idlist_val=idlist_values[0].value;
+                                                                   else
+                                                                       idlist_val=reduce |(x,y): x.value + "," + y.value| in idlist_values;
+                                                                   end;   
+        
+        return idlist_val;
+        
+    
+
+    end
+
+    
+    function linqoperator():
+        setvar linqoperator_values=[];
+                linqoperator_val="";
+         if lexx.lookahead(1)[0].type=="SELECT" then 
+                linqoperator_values :: lexx.nextToken("SELECT");
+            
+        else
+        if lexx.lookahead(1)[0].type=="SELECTMANY" then 
+                linqoperator_values :: lexx.nextToken("SELECTMANY");
+            
+        else
+        if lexx.lookahead(1)[0].type=="WHERE" then 
+                linqoperator_values :: lexx.nextToken("WHERE");
+            
+        else
+        if lexx.lookahead(1)[0].type=="ORDERBY" then 
+                linqoperator_values :: lexx.nextToken("ORDERBY");
+            
+        else
+        if lexx.lookahead(1)[0].type=="ORDERBYDESCENDING" then 
+                linqoperator_values :: lexx.nextToken("ORDERBYDESCENDING");
+            
+        else
+        if lexx.lookahead(1)[0].type=="THENBY" then 
+                linqoperator_values :: lexx.nextToken("THENBY");
+            
+        else
+        if lexx.lookahead(1)[0].type=="THENBYDESCENDING" then 
+                linqoperator_values :: lexx.nextToken("THENBYDESCENDING");
+            
+        else
+        if lexx.lookahead(1)[0].type=="ANY" then 
+                linqoperator_values :: lexx.nextToken("ANY");
+            
+        else
+        if lexx.lookahead(1)[0].type=="FIRST" then 
+                linqoperator_values :: lexx.nextToken("FIRST");
+            
+        else
+        if lexx.lookahead(1)[0].type=="LAST" then 
+                linqoperator_values :: lexx.nextToken("LAST");
+            
+        else
+        if lexx.lookahead(1)[0].type=="SINGLE" then 
+                linqoperator_values :: lexx.nextToken("SINGLE");
+            
+        else
+        if lexx.lookahead(1)[0].type=="GROUPBY" then 
+                linqoperator_values :: lexx.nextToken("GROUPBY");
+            
+        else
+        if lexx.lookahead(1)[0].type=="TAKE" then 
+                linqoperator_values :: lexx.nextToken("TAKE");
+            
+        else
+        if lexx.lookahead(1)[0].type=="TAKEWHILE" then 
+                linqoperator_values :: lexx.nextToken("TAKEWHILE");
+            
+        else
+        if lexx.lookahead(1)[0].type=="SKIP" then 
+                linqoperator_values :: lexx.nextToken("SKIP");
+            
+        else
+        if lexx.lookahead(1)[0].type=="SKIPWHILE" then 
+                linqoperator_values :: lexx.nextToken("SKIPWHILE");
+            
+        else
+        if lexx.lookahead(1)[0].type=="ALL" then 
+                linqoperator_values :: lexx.nextToken("ALL");
+            
+        else
+        if lexx.lookahead(1)[0].type=="JOIN" then 
+                linqoperator_values :: lexx.nextToken("JOIN");
+            
+        else
+        if lexx.lookahead(1)[0].type=="GROUPJOIN" then 
+                linqoperator_values :: lexx.nextToken("GROUPJOIN");
+            
+        else
+        if lexx.lookahead(1)[0].type=="REVERSE" then 
+                linqoperator_values :: lexx.nextToken("REVERSE");
+            
+        else
+        if lexx.lookahead(1)[0].type=="INTERSECT" then 
+                linqoperator_values :: lexx.nextToken("INTERSECT");
+            
+        else
+        if lexx.lookahead(1)[0].type=="UNION" then 
+                linqoperator_values :: lexx.nextToken("UNION");
+            
+        else
+        if lexx.lookahead(1)[0].type=="DISTINCT" then 
+                linqoperator_values :: lexx.nextToken("DISTINCT");
+            
+        else
+        if lexx.lookahead(1)[0].type=="EXCEPT" then 
+                linqoperator_values :: lexx.nextToken("EXCEPT");
+            
+        else
+        if lexx.lookahead(1)[0].type=="ZIP" then 
+                linqoperator_values :: lexx.nextToken("ZIP");
+            
+        else
+        if lexx.lookahead(1)[0].type=="CONCAT" then 
+                linqoperator_values :: lexx.nextToken("CONCAT");
+            
+        else
+        if lexx.lookahead(1)[0].type=="CONTAINS" then 
+                linqoperator_values :: lexx.nextToken("CONTAINS");
+            
+        else
+        if lexx.lookahead(1)[0].type=="COUNT" then 
+                linqoperator_values :: lexx.nextToken("COUNT");
+            
+        else
+        if lexx.lookahead(1)[0].type=="AGGREGATE" then 
+                linqoperator_values :: lexx.nextToken("AGGREGATE");
+            
+        else
+        if lexx.lookahead(1)[0].type=="DEFAULTIFEMPTY" then 
+                linqoperator_values :: lexx.nextToken("DEFAULTIFEMPTY");
+            
+        else
+        if lexx.lookahead(1)[0].type=="SEQUENCEEQUAL" then 
+                linqoperator_values :: lexx.nextToken("SEQUENCEEQUAL");
+            
+        else
+        if lexx.lookahead(1)[0].type=="TOLIST" then 
+                linqoperator_values :: lexx.nextToken("TOLIST");
+            
+        else
+        if lexx.lookahead(1)[0].type=="TODICTIONARY" then 
+                linqoperator_values :: lexx.nextToken("TODICTIONARY");
+            
+        else
+        if lexx.lookahead(1)[0].type=="TOLOOKUP" then 
+                linqoperator_values :: lexx.nextToken("TOLOOKUP");
+            
+        else
+        if lexx.lookahead(1)[0].type=="FOREACH" then 
+                linqoperator_values :: lexx.nextToken("FOREACH");
+            
+        else
+        if lexx.lookahead(1)[0].type=="SUM" then 
+                linqoperator_values :: lexx.nextToken("SUM");
+            
+        else
+        if lexx.lookahead(1)[0].type=="AVERAGE" then 
+                linqoperator_values :: lexx.nextToken("AVERAGE");
+            
+        else
+        if lexx.lookahead(1)[0].type=="MAX" then 
+                linqoperator_values :: lexx.nextToken("MAX");
+            
+        else
+        if lexx.lookahead(1)[0].type=="MIN" then 
+                linqoperator_values :: lexx.nextToken("MIN");
+            
+        else
+        if lexx.lookahead(1)[0].type=="RANGE" then 
+                linqoperator_values :: lexx.nextToken("RANGE");
+            
+        else
+        if lexx.lookahead(1)[0].type=="REPEAT" then 
+                linqoperator_values :: lexx.nextToken("REPEAT");
+            
+        else
+        if lexx.lookahead(1)[0].type=="CONVERT" then 
+                linqoperator_values :: lexx.nextToken("CONVERT");
+            
+        else
+        if lexx.lookahead(1)[0].type=="OFTYPE" then 
+                linqoperator_values :: lexx.nextToken("OFTYPE");
+            
+        else
+        if lexx.lookahead(1)[0].type=="ELEMENTAT" then 
+                linqoperator_values :: lexx.nextToken("ELEMENTAT");
+            
+        else
+        if lexx.lookahead(1)[0].type=="EMPTY" then 
+                linqoperator_values :: lexx.nextToken("EMPTY");
+            
+        else
+        raise "Error parsing options: No viable alternative for discriminate this options.";
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        linqoperator_val= "%" + _strip(linqoperator_values[0].value) + "%";
+                                             if linqoperator_val=="except" then linqoperator_val="except_"; end;
+        
+        return linqoperator_val;
+        
+    
+
+    end
+
+    
+    function boolexp():
+        setvar boolexp_values=[];
+                boolexp_val="";
+         boolexp_values :: orexp();
+        
+    
+        while lexx.lookahead(1)[0].type!="EOF" 
+        and lexx.lookahead(1)[0].type =="AND" do
+            boolexp_values :: lexx.nextToken("AND");
+            
+            boolexp_values :: orexp();
+            
+        
+    
+        end;
+        
+                       foreach item in boolexp_values do
+                           if _type(item)==_type(new token) then
+                               boolexp_val=boolexp_val + "  " +  item.value + " ";
+                           else
+                               boolexp_val=boolexp_val + item;
+                           end;
+                        end;
+        
+        return boolexp_val;
+        
+    
+
+    end
+
+    
+    function orexp():
+        setvar orexp_values=[];
+                orexp_val="";
+         orexp_values :: notexp();
+        
+    
+        while lexx.lookahead(1)[0].type!="EOF" 
+        and lexx.lookahead(1)[0].type =="OR" do
+            orexp_values :: lexx.nextToken("OR");
+            
+            orexp_values :: notexp();
+            
+        
+    
+        end;
+        
+                       foreach item in orexp_values do
+                           if _type(item)==_type(new token) then
+                               orexp_val=orexp_val + " " +  item.value + " ";
+                           else
+                               orexp_val=orexp_val + item;
+                           end;
+                        end;
+        
+        return orexp_val;
+        
+    
+
+    end
+
+    
+    function notexp():
+        setvar notexp_values=[];
+                notexp_val="";
+         if lexx.lookahead(1)[0].type=="NOT" then 
+                notexp_values :: lexx.nextToken("NOT");
+            
+            notexp_values :: cmpexp();
+            
+            notexp_val= " not " + notexp_values[1];
+        else
+                notexp_values :: cmpexp();
+            
+            notexp_val=notexp_values[0];
+        
+        end;
+        
+        
+        return notexp_val;
+        
+    
+
+    end
+
+    
+    function cmpexp():
+        setvar cmpexp_values=[];
+                cmpexp_val="";
+         cmpexp_values :: expr();
+        
+    
+        while lexx.lookahead(1)[0].type!="EOF" 
+        and lexx.lookahead(1)[0].type =="BOOLOP" do
+            cmpexp_values :: lexx.nextToken("BOOLOP");
+            
+            cmpexp_values :: expr();
+            
+        
+    
+        end;
+        
+                       foreach item in cmpexp_values do
+                           if _type(item)==_type(new token) then
+                               cmpexp_val=cmpexp_val + item.value;
+                           else
+                               cmpexp_val=cmpexp_val + item;
+                           end;
+                        end;
+        
+        return cmpexp_val;
+        
+    
+
+    end
+
+    
+    function expr():
+        setvar expr_values=[];
+                expr_val="";
+         expr_values :: term();
+        
+    
+        while lexx.lookahead(1)[0].type!="EOF" 
+        and lexx.lookahead(1)[0].type =="PLUSMIN" do
+            expr_values :: lexx.nextToken("PLUSMIN");
+            
+            expr_values :: expr();
+            
+        
+    
+        end;
+        
+                       foreach item in expr_values do
+                           if _type(item)==_type(new token) then
+                               expr_val=expr_val + item.value;
+                           else
+                               expr_val=expr_val + item;
+                           end;
+                        end;
+        
+        return expr_val;
+        
+    
+
+    end
+
+    
+    function term():
+        setvar term_values=[];
+                term_val="";
+         term_values :: exp();
+        
+    
+        while lexx.lookahead(1)[0].type!="EOF" 
+        and lexx.lookahead(1)[0].type =="TIMESDIV" do
+            term_values :: lexx.nextToken("TIMESDIV");
+            
+            term_values :: exp();
+            
+        
+    
+        end;
+        
+                       foreach item in term_values do
+                           if _type(item)==_type(new token) then
+                               term_val=term_val + item.value;
+                           else
+                               term_val=term_val + item;
+                           end;
+                        end;
+        
+        return term_val;
+        
+    
+
+    end
+
+    
+    function exp():
+        setvar exp_values=[];
+                exp_val="";
+         exp_values :: factor();
+        
+    
+        while lexx.lookahead(1)[0].type!="EOF" 
+        and lexx.lookahead(1)[0].type =="EXP" do
+            exp_values :: lexx.nextToken("EXP");
+            
+            exp_values :: factor();
+            
+        
+    
+        end;
+        
+                       foreach item in exp_values do
+                           if _type(item)==_type(new token) then
+                               exp_val=exp_val + "**";
+                           else
+                               exp_val=exp_val + item;
+                           end;
+                        end;
+        
+        return exp_val;
+        
+    
+
+    end
+
+    
+    function factor():
+        setvar factor_values=[];
+                facval="";
+         if lexx.lookahead(1)[0].type=="PLUSMIN" then 
+                factor_values :: lexx.nextToken("PLUSMIN");
+            
+            factor_values :: expr();
+            
+            facval=factor_values[0].value + factor_values[1];
+        else
+        if lexx.lookahead(1)[0].type=="NUMBER" then 
+                factor_values :: lexx.nextToken("NUMBER");
+            
+            facval=factor_values[0].value;
+        else
+        if lexx.lookahead(1)[0].type=="ID" then 
+                factor_values :: lexx.nextToken("ID");
+            
+        
+            while lexx.lookahead(1)[0].type!="EOF" 
+            and lexx.lookahead(1)[0].type =="DOT" do
+                factor_values :: lexx.nextToken("DOT");
+                
+                factor_values :: lexx.nextToken("ID");
+                
+            
+        
+            end;
+            
+                                facval=factor_values[0].value;
+                                if _size(factor_values)>1 then
+                                    for i=1,i<_size(factor_values),i++ do
+                                        facval=facval+factor_values[i].value;
+                                    end;
+                                end; 
+        else
+        if lexx.lookahead(1)[0].type=="STRING" then 
+                factor_values :: lexx.nextToken("STRING");
+            
+            facval=factor_values[0].value;
+        else
+        if lexx.lookahead(1)[0].type=="PIPE" then 
+                lexx.nextToken("PIPE");
+            
+            factor_values :: arglist();
+            
+            lexx.nextToken("PIPE");
+            
+            lexx.nextToken("COLON");
+            
+            factor_values :: boolexp();
+            
+            facval="|(" + _replace(factor_values[0],"@","") + "): " + factor_values[1] + "|";
+        else
+        if lexx.lookahead(1)[0].type=="LPAREN" then 
+                lexx.nextToken("LPAREN");
+            
+            factor_values :: boolexp();
+            
+            lexx.nextToken("RPAREN");
+            
+            facval="(" + factor_values[0] + ")";
+        else
+        if lexx.lookahead(1)[0].type=="CALL" then 
+                factor_values :: lexx.nextToken("CALL");
+            
+            factor_values :: funcall();
+            
+            facval=factor_values[1];
+        else
+        if lexx.lookahead(1)[0].type=="GET" then 
+                lexx.nextToken("GET");
+            
+            factor_values :: lexx.nextToken("ID");
+            
+        
+            while lexx.lookahead(1)[0].type!="EOF" 
+            and lexx.lookahead(1)[0].type =="DOT" do
+                factor_values :: lexx.nextToken("DOT");
+                
+                factor_values :: lexx.nextToken("ID");
+                
+            
+        
+            end;
+            factor_values :: lexx.nextToken("LBRACK");
+            
+            factor_values :: expr();
+            
+            factor_values :: lexx.nextToken("RBRACK");
+            
+        
+            while lexx.lookahead(1) and lexx.lookahead(1)[0].type!="EOF" 
+            and lexx.lookahead(1)[0].type =="LBRACK" do
+                factor_values :: lexx.nextToken("LBRACK");
+                
+                factor_values :: expr();
+                
+                factor_values :: lexx.nextToken("RBRACK");
+                
+            
+        
+            end;
+            #_print("VALOR DE LA LISTA EN GET: " + _tostring(factor_values));
+                        for i=0, i<_size(factor_values)-1,i++ do  
+                            if _type(factor_values[i])==_type(new token) then
+                                facval=facval + factor_values[i].value;
+                            else  
+                                facval=facval + factor_values[i];
+                            end;
+                        end;
+                        facval= facval + "]";
+                        #_print("facval: " + facval);
+                        /*facval=facval + "[" + factor_values[-1] + "]";*/
+        else
+        if  lexx.lookahead(2)[0].type=="LBRACK"  and  lexx.lookahead(2)[1].type=="RBRACK"  then 
+                factor_values :: lexx.nextToken("LBRACK");
+            
+            factor_values :: lexx.nextToken("RBRACK");
+            
+            facval="[]";
+        else
+        if  lexx.lookahead(2)[0].type=="LBRACK"  then 
+                factor_values :: lexx.nextToken("LBRACK");
+            
+            factor_values :: expr();
+            
+        
+            while lexx.lookahead(1)[0].type!="EOF" 
+            and lexx.lookahead(1)[0].type =="COMMA" do
+                lexx.nextToken("COMMA");
+                
+                factor_values :: expr();
+                
+            
+        
+            end;
+            factor_values :: lexx.nextToken("RBRACK");
+            
+            #_print("VALOR DE LA LISTA EN LIST: " + _tostring(factor_values));
+                                                                    facval="[" + _join((filter |(x): _type(x)!=_type(new token)| in factor_values),",") + "]";
+                                                                    #_print("facval: " + facval);
+        else
+        if  lexx.lookahead(2)[0].type=="LCURLY"  and  lexx.lookahead(2)[1].type=="RCURLY"  then 
+                lexx.nextToken("LCURLY");
+            
+            lexx.nextToken("RCURLY");
+            
+            facval="{}";
+        else
+        if  lexx.lookahead(2)[0].type=="LCURLY"  then 
+                lexx.nextToken("LCURLY");
+            
+            factor_values :: pair();
+            
+        
+            while lexx.lookahead(1)[0].type!="EOF" 
+            and lexx.lookahead(1)[0].type =="COMMA" do
+                lexx.nextToken("COMMA");
+                
+                factor_values :: pair();
+                
+            
+        
+            end;
+            lexx.nextToken("RCURLY");
+            
+            facval="{" + _join(factor_values,",") + "}";
+        else
+        if lexx.lookahead(1)[0].type=="QUESTION" then 
+                lexx.nextToken("QUESTION");
+            
+            factor_values :: boolexp();
+            
+            lexx.nextToken("ARROW");
+            
+            factor_values :: expr();
+            
+            lexx.nextToken("COLON");
+            
+            factor_values :: expr();
+            
+            facval= factor_values[1] + " if " + factor_values[0] + " else " + factor_values[2];
+        else
+        raise "Error parsing options: No viable alternative for discriminate this options.";
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        end;
+        
+        
+        return facval;
+        
+    
+
+    end
+
+    
+    function funcall():
+        setvar funcall_values=[];
+                funcall_val="";
+         if lexx.lookahead(1)[0].type=="ID" then 
+                funcall_values :: lexx.nextToken("ID");
+            
+        
+            while lexx.lookahead(1)[0].type!="EOF" 
+            and lexx.lookahead(1)[0].type =="DOT" do
+                funcall_values :: lexx.nextToken("DOT");
+                
+                funcall_values :: lexx.nextToken("ID");
+                
+            
+        
+            end;
+            lexx.nextToken("LPAREN");
+            
+            funcall_values :: arglist();
+            
+            lexx.nextToken("RPAREN");
+            
+        
+            while lexx.lookahead(1)[0].type!="EOF" 
+            and lexx.lookahead(1)[0].type =="DOT" do
+                funcall_values :: lexx.nextToken("DOT");
+                
+                funcall_values :: funcall();
+                
+            
+        
+            end;
+        else
+        if lexx.lookahead(1)[0].type=="GET" then 
+                lexx.nextToken("GET");
+            
+            funcall_values :: lexx.nextToken("ID");
+            
+        
+            while lexx.lookahead(1)[0].type!="EOF" 
+            and lexx.lookahead(1)[0].type =="DOT" do
+                funcall_values :: lexx.nextToken("DOT");
+                
+                funcall_values :: lexx.nextToken("ID");
+                
+            
+        
+            end;
+            funcall_values :: lexx.nextToken("LBRACK");
+            
+            funcall_values :: expr();
+            
+            funcall_values :: lexx.nextToken("RBRACK");
+            
+        
+            while lexx.lookahead(1) and lexx.lookahead(1)[0].type!="EOF" 
+            and lexx.lookahead(1)[0].type =="LBRACK" do
+                funcall_values :: lexx.nextToken("LBRACK");
+                
+                funcall_values :: expr();
+                
+                funcall_values :: lexx.nextToken("RBRACK");
+                
+            
+        
+            end;
+            lexx.nextToken("LPAREN");
+            
+            funcall_values :: arglist();
+            
+            lexx.nextToken("RPAREN");
+            
+        else
+        raise "Error parsing options: No viable alternative for discriminate this options.";
+        end;
+        
+        end;
+         #_print("En funcall: " + _tostring(funcall_values));
+                                     for i=0, i<_size(funcall_values)-1,i++ do 
+                                         #_print("PROCESANDO: " + _tostring(funcall_values[i]));
+                                         if _type(funcall_values[i])==_type(new token) then 
+                                             funcall_val=funcall_val + funcall_values[i].value;
+                                         else
+                                             if funcall_values[i] and funcall_values[i][0]=="@" then
+                                                 funcall_val=funcall_val + "(" +  _replace(funcall_values[i],"@","") + ")";
+                                             else
+                                                 funcall_val=funcall_val + funcall_values[i];
+                                             end;
+                                         end;
+                                     end; 
+                                     if funcall_values[i] and funcall_values[-1][0]=="@" then
+                                         funcall_val=funcall_val + "(" +  _replace(funcall_values[-1],"@","") + ")";
+                                     else
+                                         funcall_val=funcall_val + funcall_values[-1];
+                                     end;
+                                     if funcall_val[-1]!=")" then funcall_val=funcall_val + "()"; end;#???
+        
+        return funcall_val;
+        
+    
+
+    end
+
+    
+    function arglist():
+        setvar arglist_values=[];
+                arglist_val="";
+         if lexx.lookahead(1)[0].type=="DOT" then 
+                arglist_values :: lexx.nextToken("DOT");
+            
+            arglist_val="@"; 
+        else
+                arglist_values :: expr();
+            
+        
+            while lexx.lookahead(1)[0].type!="EOF" 
+            and lexx.lookahead(1)[0].type =="COMMA" do
+                lexx.nextToken("COMMA");
+                
+                arglist_values :: expr();
+                
+            
+        
+            end;
+             arglist_val= arglist_values[0];
+                                 if _size(arglist_values)>1 then
+                                     for i=1,i< _size(arglist_values),i=i+1 do
+                                       arglist_val=arglist_val + "," + arglist_values[i];
+                                     end;
+                                 end;
+                                 #_print("ARGLIST: " + _tostring(arglist_values));
+                                 arglist_val="@" + arglist_val;
+        
+        end;
+        
+        
+        return arglist_val;
+        
+    
+
+    end
+
+    
+    function pair():
+        setvar pair_values=[];
+                 if lexx.lookahead(1)[0].type=="NUMBER" then 
+                pair_values :: lexx.nextToken("NUMBER");
+            
+            lexx.nextToken("COLON");
+            
+            pair_values :: expr();
+            
+            pairval=pair_values[0].value + ":" + pair_values[1]; 
+        else
+        if lexx.lookahead(1)[0].type=="STRING" then 
+                pair_values :: lexx.nextToken("STRING");
+            
+            lexx.nextToken("COLON");
+            
+            pair_values :: expr();
+            
+            pairval=pair_values[0].value + ":" + pair_values[1]; 
+        else
+        if lexx.lookahead(1)[0].type=="ID" then 
+                pair_values :: lexx.nextToken("ID");
+            
+            lexx.nextToken("COLON");
+            
+            pair_values :: expr();
+            
+            pairval=pair_values[0].value + ":" + pair_values[1]; 
+        else
+        raise "Error parsing options: No viable alternative for discriminate this options.";
+        end;
+        
+        end;
+        
+        end;
+        
+        
+        return pairval;
+        
+    
+
+    end
+
+    
+endsec;
+
+#start post_code
+
+#end post_code
+
+_print("Put your code here");

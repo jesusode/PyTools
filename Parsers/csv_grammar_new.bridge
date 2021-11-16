@@ -1,0 +1,70 @@
+#Pruebas del generador de parsers
+imports parser_builder;
+
+setvar input="""
+grammar csv
+    tokens 
+        COMMA -> <re>,</re>
+        EOLN -> <re>\\\\n</re>
+        TEXT -> <re>[^,\\\\n\\"]+</re>
+        STRING -> <re>\\"[^\\"]+\\"</re>
+    end
+
+    ignore end
+
+    discard COMMA EOLN end
+
+    {{setvar field_names=[];
+      setvar getting_headers=true;}} 
+
+    /*Regla file*/
+    file : header (row)+ 
+        {{file_values= [1:null] in file_values;}}
+        ;
+
+    /*Regla header*/
+    header : {{global field_names;}}  row 
+        {{header_values=header_values[0];
+         field_names=header_values;}}
+        ;
+
+    /*Regla row*/
+    row :   {{global field_names,getting_headers;}}  field ( COMMA field)*
+        {{if getting_headers==false then
+            tmpdict={};
+            _print(_size(field_names));
+            for i=0,i<_size(field_names),i++ do
+                tmpdict[field_names[i]]=row_values[i];
+            end;
+            _print("valor de tmpdict: " + _tostring(tmpdict));
+            row_values=tmpdict;
+        else
+            getting_headers=false;
+        end;}}
+        EOLN;
+
+    /*Regla field*/
+    field [returns fvalue] : {{fvalue=-1;}}
+          | TEXT 
+                {{fvalue=field_values[0];}} 
+          | STRING 
+                {{fvalue=field_values[0];}} 
+          | empty 
+                {{fvalue=new token(?type="empty",?value="null");}} 
+          {{fvalue=fvalue.value;}}
+          ;
+    end
+    {{
+    setvar data="header1,header2,header3\\\\n\\"uno\\",dos,tres\\\\ncuatro,cinco,seis\\\\nsiete,\\"ocho\\",nueve\\\\n";
+    lexx.setInput(data);
+    _print(_tostring(file()));}}
+""";
+
+lexx.setInput(input);
+setvar parse_str= grammar();
+_print("Parser generado:\n");
+_print(parse_str);
+create files "csv_parser.bridge";
+#Cambio para que escriba bien en el archivo (revisarlo)
+words parse_str.replace("'\"","\"").replace("\"'","\"").replace("u\"","\"") to "csv_parser.bridge";
+_print("Ok");
