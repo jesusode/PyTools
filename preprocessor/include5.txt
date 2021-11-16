@@ -1,0 +1,7 @@
+
+#include test_code/include1.txt
+#include test_code/include2.txt
+#include test_code/include3.txt
+#include test_code/include4.txt
+
+print('From include 5');

@@ -1,0 +1,3 @@
+/*Include 4*/
+
+print('From include 4');

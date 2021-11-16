@@ -1,0 +1,3 @@
+/*Include 1*/
+
+print('From include 1');

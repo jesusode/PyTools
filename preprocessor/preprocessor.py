@@ -22,6 +22,10 @@ class PreProcMacro:
         return '<<PreProcMacro:\n name: %s\n value: %s\n args: %s\n va_args: %s\n foreach: %s >>\n' % (self.name, self.value, self.args, self.va_args, self.foreach)
 
 
+
+def findFileToInclude(f):
+    return open(f.strip(),'r').read()
+
 # Pruebas para el if en el preprocessor------
 def eval_if_expr(e, names):
     #print('names: %s'%names)
@@ -142,7 +146,7 @@ def preprocessor(txt):
                         """assertion error: 'len(parts) >= 2' is false""")
                 if ignore_lin == False:
                     # if _strip(parts[1]) in defines_list :
-                    if parts[1].strip() in define_list:
+                    if parts[1].strip() in defines_list:
                         ignore_lin = False
                     else:
                         ignore_lin = True
@@ -153,10 +157,10 @@ def preprocessor(txt):
             # if _find(_strip(lin),"#ifexp") == 0 :
             if lin.strip().find("#ifexp") == 0:
                 #parts = _split(_strip(lin)," ")
-                parts = lim.strip().split(" ")
+                parts = lin.strip().split(" ")
                 # print(defines)
                 # print(defines.items())
-                print([x for x in defines.values()])
+                #print([x for x in defines.values()])
                 _names = {x[0]: x[1].value for x in defines.items()}
                 # if not len(parts) >= 2:
                 #   raise Exception("""assertion error: 'len(parts) >= 2' is false""")
@@ -243,7 +247,7 @@ def preprocessor(txt):
                 name = parts[1].strip()
                 if "(" in name:
                     #rest = _sublist(name,_index("(",name)+1,-1)
-                    rest = name[name.index("("):-1]
+                    rest = name[name.index("(")+1:-1]
                     #name = _sublist(name,0,_index("(",name))
                     name = name[0:name.index("(")]
                     #args = _split(rest,",") if "," in rest else [rest]
@@ -277,7 +281,7 @@ def preprocessor(txt):
                             raise Exception(
                                 "Bridge Preprocessor error: #foreach macro only accepts variadic arguments (...), given (%s)" % ','.join(args))
                         #value = _join(" ",list(itertools.chain(parts))[ 3: None])
-                        value = parts[3:].join(" ")
+                        value = " ".join(parts[3:])
                     m = PreProcMacro(name, value, args, variadic,foreach)
                     # m.toString()
                 else:
@@ -567,8 +571,7 @@ def preprocessor(txt):
                             if is_variadic_macro and not is_foreach_macro:
                                 #print("VSEP aqui: " + variadic_separator)
                                 #newval= _replace(newval,"...",_join(variadic_separator,args[i:]))
-                                newval = newval.replace(
-                                    "...", args[i:].join(variadic_separator))
+                                newval = newval.replace("...", variadic_separator.join(args[i:]))
                                 #print("NEWVAL: " + newval)
                             #lin = _replace(lin,item + "(" + _join(",",args) + ")",newval)
                             lin = lin.replace(
