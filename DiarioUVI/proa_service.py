@@ -4,6 +4,9 @@ from flask import Flask
 import time
 import datetime
 import json
+
+import flask
+from flask.helpers import make_response
 import xmlutils
 import utilidades
 import pickle
@@ -50,8 +53,16 @@ anas_from_pac= consultas_ol.anas_from_pac
 anas_defined = consultas_ol.anas_defined
 organismos_defined = consultas_ol.organismos_defined
 res_micro = consultas_ol.resmicro
+aislamientos = consultas_ol.aislam_str
+atb_s = consultas_ol.atb_string
 #-----------------------------------------------------------------------------------
 
+
+def makeFlaskResponse(resp):
+    response = flask.Response(resp)
+    response.access_control_allow_origin = "*"
+    response.access_control_allow_methods = ' GET, DELETE, HEAD, OPTIONS'
+    return response
 
 
 app = Flask(__name__)
@@ -92,19 +103,22 @@ def server_init():
 @app.route('/info',methods=['GET'])
 def info_handler():
     '''Handles info'''
-    return info
+    #return info
+    return makeFlaskResponse(json.dumps([info]))
 
 @app.route('/pacs',methods=['GET'])
 def pacs_handler():
     '''Handles listing'''
     print("Iniciando respuesta pacs...")
-    return json.dumps({'result': lines_pacs})
+    #return json.dumps({'result': lines_pacs})
+    return makeFlaskResponse(json.dumps({"result": lines_pacs}))
 
 @app.route('/atbs',methods=['GET'])
 def atbs_handler():
     '''Handles listing'''
     print("Iniciando respuesta atbs...")
-    return json.dumps({'result': lines_atbs})
+    #return json.dumps({'result': lines_atbs})
+    return makeFlaskResponse(json.dumps({"result": lines_atbs}))
 
 @app.route('/medicacion/<nhc>',methods=['GET'])
 def medicacion_handler(nhc):
@@ -158,13 +172,15 @@ def medicacion_handler(nhc):
     coments = [x for x in com_table.find("div").strings]
     #print(coments)
     pac_medicacion["comentarios"] = coments
-    return json.dumps({"result":pac_medicacion})
+    #return json.dumps({"result":pac_medicacion})
+    return makeFlaskResponse(json.dumps({"result": pac_medicacion}))
 
 @app.route('/total_pacs',methods=['GET'])
 def total_pacs_handler():
     '''Handles listing'''
     print("Iniciando respuesta total_pacs...")
-    return json.dumps({'result': len(lines_pacs)})
+    #return json.dumps({'result': len(lines_pacs)})
+    return makeFlaskResponse(json.dumps({"result": lines_pacs}))
 
 @app.route('/pacs_serv',methods=['GET'])
 def pacs_serv_handler():
@@ -175,7 +191,8 @@ def pacs_serv_handler():
     #Tabla servicio->nhcs
     byserv = groupby(lambda x : x[6],lines_pacs[1:])
     mapDictTree(byserv,[lambda x: [y[0] for y in x]])
-    return json.dumps({'result': byserv})
+    #return json.dumps({'result': byserv})
+    return makeFlaskResponse(json.dumps({"result": byserv}))
 
 @app.route('/pacs_nhc',methods=['GET'])
 def pacs_nhc_handler():
@@ -183,7 +200,8 @@ def pacs_nhc_handler():
     print("Iniciando respuesta pacs_nhc...")
     #Tabla servicio->nhcs
     bynhc = groupby(lambda x : x[0],lines_pacs[1:])
-    return json.dumps({'result': bynhc})
+    #return json.dumps({'result': bynhc})
+    return makeFlaskResponse(json.dumps({"result": bynhc}))
 
 @app.route('/analiticas/<nhc>',methods=['GET'])
 def analiticas_handler(nhc):
@@ -200,7 +218,10 @@ def analiticas_handler(nhc):
         anas.append(lst)
     print("Conexion correcta")
     conn.close()
-    return json.dumps({"result": anas})
+    #response = flask.Response(json.dumps({"result": anas}))
+    #response.access_control_allow_origin = "*"
+    #response.access_control_allow_methods = ' GET, DELETE, HEAD, OPTIONS'
+    return makeFlaskResponse(json.dumps({"result": anas}))
 
 @app.route('/res_micro/<nhc>',methods=['GET'])
 def res_micro_handler(nhc):
@@ -215,7 +236,10 @@ def res_micro_handler(nhc):
         micros.append(row)
     print("Conexion correcta")
     conn.close()
-    return json.dumps({"result": micros})
+    #response = flask.Response(json.dumps({"result": micros}))
+    #response.access_control_allow_origin = "*"
+    #response.access_control_allow_methods = ' GET, DELETE, HEAD, OPTIONS'
+    return makeFlaskResponse(json.dumps({"result": micros}))
 
 
 @app.route('/anas_defined',methods=['GET'])
@@ -229,7 +253,12 @@ def anas_defined_handler():
     for row in cur.fetchall():
         anasd.append(row)
     conn.close()
-    return json.dumps({"result": anasd})
+    #print(anasd)
+    #response = flask.Response(json.dumps({"result": anasd}))
+    #response.access_control_allow_origin = "*"
+    #response.access_control_allow_methods = ' GET, DELETE, HEAD, OPTIONS'
+    #return response
+    return makeFlaskResponse(json.dumps({"result": anasd}))
 
 
 @app.route('/microorganismos',methods=['GET'])
@@ -245,6 +274,34 @@ def amicroorganismos_handler():
     conn.close()
     return json.dumps({"result": orgs})
 
+
+@app.route('/aislamientos/<nhc>',methods=['GET'])
+def aislamientos_handler(nhc):
+    global connstr,aislamientos,atb_s
+    micro = aislamientos.format(nhc)
+    conn = pypyodbc.connect(connstr)
+    cur = conn.cursor()
+    cur.execute(micro)
+    #cur.fetchall()
+    micros = []
+    atbs = {}
+    org_nids = []
+    for row in cur.fetchall():
+        #Usar str para que serialize las fechas a JSON. Si no, da una excepcion
+        micros.append([str(x) for x in row])
+        org_nids.append(row[-1])
+        atbs[row[-1]] = []
+    print("Conexion correcta")
+    a_tb = atb_s.format(','.join(["'" + str(x) + "'" for x in org_nids]))
+
+    cur.execute(a_tb)
+    print(cur.description)
+
+    for row in cur.fetchall():
+        atbs[row[0]].append([str(x) for x in row[1:]])
+        #cont+=1
+    conn.close()
+    return json.dumps({"result": {"organismos": micros,"antibiogramas" : atbs}})
 
 
 #------------------------------------------

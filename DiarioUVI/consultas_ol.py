@@ -65,7 +65,7 @@ posmicro_string="""
     openconf.dbo.ana,openconf.dbo.microorganismos,
     opendata.dbo.pet,openconf.dbo.muestras,
     openconf.dbo.ser
-    where opendata.dbo.resorganismos.fcrea  between '{fcrea1}' and '{fcrea2}'  
+    where opendata.dbo.resorganismos.fcrea  between '{0}' and '{1}'  
     and opendata.dbo.resorganismos.pac=opendata.dbo.pac.nid
     and opendata.dbo.resorganismos.pet=opendata.dbo.pet.nid
     and opendata.dbo.resorganismos.muestra=openconf.dbo.muestras.nid
@@ -79,12 +79,13 @@ posmicro_string="""
 
 #Obtiene el antibiograma de un aislamiento
 atb_string="""
-select 
+select
+resorganismo, 
 openconf.dbo.antibioticos.nombre,
 sensibilidad, 
 cmi from ResAntibioticos,
 openconf.dbo.antibioticos
- where resorganismo={nhc}
+ where resorganismo in ({0})
 and openconf.dbo.antibioticos.nid=resantibioticos.antibiotico;"""
 
 #Obtiene todos los analisis no de micro asociados a un paciente
@@ -93,7 +94,7 @@ anas_from_interest=["CREA","HB","HEM","LEU","PLQ"]
 anas_from_pac="""
 select fechapet,pet.id,openconf.dbo.ana.abr,vnum,vdic,vmemo,resul.estado 
  from resul,pet,openconf.dbo.ana
- where pet.pac=(select nid from pac where pac.nhisto='{nhc}')
+ where pet.pac=(select nid from pac where pac.nhisto='{0}')
 and resul.ana=openconf.dbo.ana.nid
 and resul.pet=pet.nid
 and openconf.dbo.ana.abr in ('CREA','PCR','PROCALC','HB','LEU','PLQ') 
@@ -103,7 +104,7 @@ order by fechapet desc,abr asc"""
 anas_from_pac20="""
 select top 20 fechapet as fecha,pet.id as peticion,openconf.dbo.ana.abr as determinacion,vnum as resultado 
  from resul,pet,openconf.dbo.ana
- where pet.pac=(select nid from pac where pac.nhisto='{nhc}')
+ where pet.pac=(select nid from pac where pac.nhisto='{0}')
 and resul.ana=openconf.dbo.ana.nid
 and resul.pet=pet.nid
 and openconf.dbo.ana.abr in ('CREA','PCR','PROCALC','HB','LEU','PLQ') 

@@ -3,15 +3,14 @@ import PySimpleGUI as sg
 import pickle
 import json
 import requests
-import streams
-import streams.dictutils
-from streams.dictutils import groupby,mapDictTree
-from bridge_odswriter import *
+#import streams
+#import streams.dictutils
+#from streams.dictutils import groupby,mapDictTree
+#from bridge_odswriter import *
 from CSVTransformer import *
 from utilidades import *
 from clasificacion_practica import *
 import grupoJ
-from bridge_odswriter import *
 import webbrowser
 
 #print(help(sg.Table))
